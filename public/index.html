@@ -1290,7 +1290,7 @@ function renderVehPanel(first) {
   info.innerHTML = `${GRAB}<div class="hd"><button class="close" aria-label="Stäng">×</button>
     <h2>${chip(l)}<span>mot ${ST[v.to].name}</span></h2>
     <div class="sub">${l.name} · <b class="${v.delay >= 120 ? 'bad' : ''}">${delayTxt}</b> · position ${upd}</div>
-    <button class="follow${follow ? ' on' : ''}">${follow ? 'Följer fordonet' : 'Följ fordonet'}</button></div>
+    </div>
     <ol class="trip">${rows.join('')}</ol>
     <div class="foot">Tider = tidtabell + aktuell försening (beräknat). Fordon ${v.id}</div>`;
   info.classList.add('show');
