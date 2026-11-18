@@ -125,7 +125,7 @@ function label(st) {
   const lines = text.split('\n');
   const y0 = -(lines.length - 1) * LH / 2;
   lines.forEach((s, i) => {
-    const sp = el('tspan', { x: P[0], dy: i === 0 ? y0 + 5.5 : LH }, t);
+    const sp = el('tspan', { x: P[0], dy: i === 0 ? y0 + 4.5 : LH }, t);
     sp.textContent = s;
   });
   (stationEls[st.id] = stationEls[st.id] || []).push(t);
