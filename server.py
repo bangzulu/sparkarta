@@ -432,7 +432,31 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
 
+def snapshot(outfile):
+    """Engångskörning för GitHub Actions: hämta realtid en gång och skriv JSON-fil."""
+    static = build_static()
+    url = f'{BASE_URL}/gtfs-rt/{OPERATOR}/VehiclePositions.pb?key={RT_KEY}'
+    out = {'now': time.time(), 'updated': 0, 'static': True, 'poll': 300, 'error': None, 'stats': {}, 'vehicles': []}
+    try:
+        r = session.get(url, timeout=60)
+        r.raise_for_status()
+        feed = gtfs_realtime_pb2.FeedMessage()
+        feed.ParseFromString(r.content)
+        vehicles, stats = process_feed(feed, static)
+        out.update(updated=time.time(), feed_ts=feed.header.timestamp, stats=stats, vehicles=vehicles)
+        log.info('Ögonblicksbild: %d spårfordon', len(vehicles))
+    except Exception as e:
+        out['error'] = str(e)
+        log.warning('Realtid misslyckades: %s', e)
+    p = Path(outfile)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(out, ensure_ascii=False), encoding='utf-8')
+
+
 def main():
+    import sys
+    if len(sys.argv) > 2 and sys.argv[1] == '--snapshot':
+        return snapshot(sys.argv[2])
     if not RT_KEY:
         raise SystemExit('Saknar TRAFIKLAB_RT_KEY (lägg den i .env)')
     static = build_static()

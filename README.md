@@ -26,6 +26,20 @@ Resultatet cachas i `cache/` och hämtas om högst var 72:e timme (statisk kvot 
 
 Servern pollar bara när någon har kartan öppen (senaste 5 min), så kvoten räcker längre.
 
+## Publik webb via GitHub Pages
+
+Workflowen `.github/workflows/pages.yml` publicerar kartan med realtidsdata utan egen server:
+var 5:e minut (GitHub kör schemat ungefärligt, ofta 5–15 min) hämtas positionerna och läggs som
+`api/vehicles` bredvid kartan. Mellan uppdateringarna rullar tågen vidare enligt tidtabell + försening.
+
+Engångsinställning:
+1. **Settings → Secrets and variables → Actions**: lägg till `TRAFIKLAB_RT_KEY` och `TRAFIKLAB_STATIC_KEY`.
+2. **Settings → Pages → Source**: välj *GitHub Actions*.
+3. Repot måste vara publikt (eller GitHub Pro) för Pages.
+4. **Actions → Publicera spårkarta → Run workflow** för första körningen.
+
+Kvot: ~9 000 realtidsanrop/månad (Bronze tillåter 30 000), statisk data hämtas var 3:e dygn.
+
 ## Kvot
 
 | Nivå   | Realtid/månad | Rimligt `POLL_SECONDS` |

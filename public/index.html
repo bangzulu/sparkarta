@@ -1087,11 +1087,14 @@ function setMode(m) {
 async function pollLive() {
   clearTimeout(live.timer);
   try {
-    const r = await fetch(LIVE_URL, { cache: 'no-store' });
+    const r = await fetch(LIVE_URL + '?t=' + Math.floor(Date.now() / 10000), { cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const j = await r.json();
     live.ok = true; live.tried = true;
-    live.skew = j.now - Date.now() / 1000;
+    // Statisk fil (GitHub Pages) – klientens klocka gäller, och fordonen får rulla längre på tidtabellen
+    live.static = !!j.static;
+    live.skew = j.static ? 0 : j.now - Date.now() / 1000;
+    if (j.static) MAX_AHEAD = 30;
     live.data = j;
     if (mode === 'live' && j.updated && j.updated !== live.updated) { live.updated = j.updated; applyLive(j.vehicles); }
   } catch (e) {
@@ -1135,7 +1138,7 @@ function applyLive(list) {
 function livePos(v, now) {
   const n = v.stops.length, k0 = Math.min(v.k || 0, Math.max(0, n - 2));
   if (n === 1) return { from: v.stops[0], to: null, progress: 0, seg: 0, at: 0 };
-  const t = Math.min(now, v.ts + (live.snapshot ? 1800 : FREEZE_AFTER)) - v.delay;
+  const t = Math.min(now, v.ts + (live.snapshot || live.static ? 1800 : FREEZE_AFTER)) - v.delay;
   for (let j = k0; j < n - 1 && j <= k0 + MAX_AHEAD; j++) {
     if (t < v.dep[j]) {
       if (j === k0 && v.f >= 0.02) return { from: v.stops[j], to: v.stops[j + 1], progress: v.f, seg: j, at: -1 };
