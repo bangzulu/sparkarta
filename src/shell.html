@@ -96,6 +96,10 @@
     justify-content:center;cursor:pointer;pointer-events:auto;transition:top .25s linear;box-shadow:0 1px 4px rgba(0,0,0,.5)}
   #info .vm.up{left:calc(var(--tx) - 18px)}
   #info .vm.vsel,#info .vm:hover{border-color:var(--y);transform:scale(1.2)}
+  #info .chips.filter .chip{transition:opacity .15s}
+  #info .chips.filter .chip.dim{opacity:.35}
+  #info .chips.filter .chip.dim:hover{opacity:.7}
+  #info .chips.filter .chip.on{box-shadow:0 0 0 2px var(--panel),0 0 0 4px #fff}
   #info .branch{margin:16px 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
   #info ol.deps{border-left:0;padding:0}
   #info ol.deps li{display:flex;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}

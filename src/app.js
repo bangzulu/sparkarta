@@ -274,10 +274,10 @@ $('#zfit').onclick = () => fitAll(true);
 addEventListener('resize', applyView);
 
 /* ---------- Markering ---------- */
-let sel = null, focus = null, selSet = new Set(), stPanel = null;
+let sel = null, focus = null, selSet = new Set(), stPanel = null, stFilter = null;
 let selVeh = null, follow = false;
 function clearSel() {
-  sel = null; selSet = new Set(); stPanel = null;
+  sel = null; selSet = new Set(); stPanel = null; stFilter = null;
   selVeh = null; follow = false;
   document.querySelectorAll('.veh.vsel').forEach(e => e.classList.remove('vsel'));
   svg.classList.remove('has-sel');
@@ -400,24 +400,39 @@ function showStation(id, opts = {}) {
     if (sel !== keep) selectLine(keep, false);
     showLineInfo(LINE[keep], id);
   } else {
-    const lines = [...new Set(groupOf(id).flatMap(g => [...ST[g].lines]))].sort((a, b) => a - b);
-    selectLines(lines, { zoom: false, info: false });
+    selectLines(stationLines(id), { zoom: false, info: false });
     stPanel = id;
     renderStationPanel();
   }
   setFocus(id);
   if (opts.zoom !== false) zoomToStation(id);
 }
+const stationLines = id => [...new Set(groupOf(id).flatMap(g => [...ST[g].lines]))].sort((a, b) => a - b);
+/* Linjeknapparna i avgångsvyn filtrerar avgångarna (och kartan) i stället för att byta vy */
+function setStationFilter(lineId) {
+  const id = stPanel;
+  const f = stFilter === lineId ? null : lineId;
+  selectLines(f ? [f] : stationLines(id), { zoom: false, info: false });
+  stPanel = id; stFilter = f;
+  setFocus(id);
+  renderStationPanel();
+}
+function filterChip(l) {
+  const rx = l.mode === 'pendel' ? 13 : l.mode === 'metro' ? 3 : 8;
+  const cls = stFilter === l.id ? ' on' : stFilter ? ' dim' : '';
+  return `<button class="chip${cls}" data-filter="${l.id}" style="background:${colorOf(l)};border-radius:${rx}px">${l.id}</button>`;
+}
 function renderStationPanel() {
   const id = stPanel, s = ST[id], info = $('#info');
   const grp = groupOf(id);
-  const lines = [...selSet].map(i => LINE[i]);
+  const lines = stationLines(id).map(i => LINE[i]);
   const names = [...new Set(grp.map(g => ST[g].name))].join(' / ');
   let dep = '';
   if (mode === 'live' && live.veh.size) {
     const now = Date.now() / 1000 + live.skew, rows = [];
     live.veh.forEach(v => {
       const p = v.pos; if (!p) return;
+      if (stFilter && v.line !== stFilter) return;
       const next = p.at >= 0 ? p.at : p.seg + 1;
       for (let i = next; i < v.stops.length; i++) {
         if (!grp.includes(v.stops[i])) continue;
@@ -434,13 +449,13 @@ function renderStationPanel() {
       const rel = r.here ? 'här nu' : m <= 0 ? 'nu' : `${m} min`;
       const late = Math.abs(r.v.delay) >= 60 ? ` <span class="${r.v.delay >= 120 ? 'bad' : 'muted'}">${fmtDelay(r.v.delay)}</span>` : '';
       return `<li data-vid="${r.v.id}"><span class="tm">${hhmm(r.t)}</span>${chip(l)}<span class="nm">${r.last ? 'Slutstation' : ST[r.v.to].name}${late}</span><span class="rel">${rel}</span></li>`;
-    }).join('')}</ol>` : '<div class="sub">Inga tåg på väg hit just nu.</div>';
+    }).join('')}</ol>` : `<div class="sub" style="margin-top:14px">Inga tåg${stFilter ? ` på linje ${stFilter}` : ''} på väg hit just nu.</div>`;
   }
   const scroll = info.scrollTop;
   info.style.removeProperty('--c');
   info.innerHTML = `<button class="close" aria-label="Stäng">×</button><h2><span>${names}</span></h2>
-    <div class="sub">${lines.length} linje${lines.length > 1 ? 'r' : ''} – klicka på en för att bara visa den</div>
-    <div class="chips">${lines.map(l => chip(l, id)).join('')}</div>${dep}`;
+    <div class="sub">${lines.length > 1 ? (stFilter ? `Visar linje ${stFilter} – klicka igen för alla` : `${lines.length} linjer – välj en för att filtrera`) : '1 linje'}</div>
+    <div class="chips filter">${lines.map(filterChip).join('')}</div>${dep}`;
   info.classList.add('show');
   info.scrollTop = scroll;
 }
@@ -462,12 +477,13 @@ svg.addEventListener('click', e => {
   if (t.dataset.line) return t.closest('#gLegend') ? (sel === t.dataset.line ? clearSel() : selectLine(t.dataset.line)) : selectLine(t.dataset.line, false);
 });
 $('#info').addEventListener('click', e => {
-  const t = e.target.closest('[data-st],[data-line],[data-zoom],[data-vid],.close,.follow');
+  const t = e.target.closest('[data-st],[data-line],[data-zoom],[data-vid],[data-filter],.close,.follow');
   if (!t) return;
   if (t.classList.contains('close')) return clearSel();
   if (t.classList.contains('follow')) return setFollow(!follow);
   if (t.dataset.zoom) { setFollow(false); return zoomToStation(t.dataset.zoom); }
   if (t.dataset.at) return showStation(t.dataset.at, { line: t.dataset.line });
+  if (t.dataset.filter) return setStationFilter(t.dataset.filter);
   if (t.dataset.vid) return showVehicle(t.dataset.vid);
   if (t.dataset.st) return showStation(t.dataset.st, { fromList: true });
   if (t.dataset.line) return selectLine(t.dataset.line);
