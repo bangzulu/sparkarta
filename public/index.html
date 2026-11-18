@@ -47,11 +47,7 @@
   .veh text{font-size:9.5px;font-weight:700;fill:#fff;text-anchor:middle;pointer-events:none}
 
   .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.35)}
-  #search{position:fixed;top:12px;right:12px;width:240px;padding:10px 12px;font:inherit;font-size:16px;color:var(--ink);
-    background:var(--panel);border:1px solid var(--line);border-radius:10px;outline:none}
-  #search::placeholder{color:var(--muted)}
-  #search:focus{border-color:var(--y)}
-  #info{position:fixed;right:12px;top:62px;width:310px;max-height:calc(100% - 140px);overflow:auto;padding:14px 16px;display:none}
+  #info{position:fixed;right:12px;top:12px;width:310px;max-height:calc(100% - 90px);overflow:auto;padding:14px 16px;display:none}
   #info.show{display:block}
   #info h2{margin:0 0 4px;font-size:22px;font-weight:600;display:flex;align-items:center;gap:10px;padding-right:20px}
   #info .sub{color:var(--muted);font-size:15px;margin-bottom:12px}
@@ -115,25 +111,8 @@
   #zoom{display:flex;overflow:hidden}
   #zoom button{width:42px;height:42px;border:0;background:var(--panel);color:#fff;font-size:22px;cursor:pointer}
   #zoom button+button{border-left:1px solid var(--line)}
-  #veh{display:flex;align-items:center;gap:10px;padding:0 12px;font-size:16px}
-  #veh label{display:flex;align-items:center;gap:6px;cursor:pointer}
-  #veh input[type=range]{width:90px;accent-color:var(--y)}
-  #modes{display:flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
-  #modes button{border:0;background:none;color:var(--muted);font:inherit;font-size:15px;padding:5px 10px;cursor:pointer}
-  #modes button+button{border-left:1px solid var(--line)}
-  #modes button.on{background:var(--y);color:#222;font-weight:600}
-  #vstatus{font-size:14.5px;color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:6px}
-  .dot-live{width:9px;height:9px;border-radius:50%;background:#2ecc71;box-shadow:0 0 0 0 rgba(46,204,113,.6);animation:pulse 2s infinite;display:inline-block}
-  .dot-live.wait{background:#aaa;animation:none}
-  .dot-live.err{background:#e74c3c}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(46,204,113,.6)}70%{box-shadow:0 0 0 7px rgba(46,204,113,0)}100%{box-shadow:0 0 0 0 rgba(46,204,113,0)}}
-  #veh:not(.demo) #speed{display:none}
   @media (max-width:760px){
-    #search{left:12px;right:12px;width:auto}
     #info{left:12px;right:12px;width:auto;top:auto;bottom:66px;max-height:40%}
-    #veh input[type=range]{width:60px}
-    #vstatus{display:none}
-    #ctrl{left:12px;justify-content:space-between}
   }
 </style>
 </head>
@@ -145,15 +124,8 @@
   </g>
   <g id="gVehicles"></g>
 </svg>
-<input id="search" list="stationList" placeholder="Sök station…" autocomplete="off">
-<datalist id="stationList"></datalist>
 <div id="info" class="card"></div>
 <div id="ctrl">
-  <div id="veh" class="card">
-    <div id="modes"><button data-mode="live">Live</button><button data-mode="demo">Demo</button><button data-mode="off">Av</button></div>
-    <span id="vstatus"></span>
-    <input type="range" id="speed" min="0.25" max="6" step="0.25" value="1.5" title="Demohastighet">
-  </div>
   <div id="zoom" class="card">
     <button id="zout" title="Zooma ut">−</button>
     <button id="zin" title="Zooma in">+</button>
@@ -930,9 +902,9 @@ addEventListener('keydown', e => { if (e.key === 'Escape') clearSel(); });
 // Sök
 const byName = {};
 Object.values(ST).forEach(s => { if (s.lines.size) (byName[s.name.toLowerCase()] ||= s.id); });
-$('#stationList').innerHTML = Object.keys(byName).map(k => ST[byName[k]].name).sort((a, b) => a.localeCompare(b, 'sv'))
+if ($('#stationList')) $('#stationList').innerHTML = Object.keys(byName).map(k => ST[byName[k]].name).sort((a, b) => a.localeCompare(b, 'sv'))
   .map(n => `<option value="${n}">`).join('');
-$('#search').addEventListener('change', e => {
+$('#search')?.addEventListener('change', e => {
   const id = byName[e.target.value.trim().toLowerCase()];
   if (!id) return;
   showStation(id); e.target.blur();
@@ -1031,7 +1003,7 @@ function stopDemo() {
   demo = null;
 }
 function stepDemo(dt) {
-  const sp = +$('#speed').value;
+  const sp = DEMO_SPEED;
   demo.forEach(d => {
     const { route, stops } = LINE[d.line];
     if (d.dwell > 0) d.dwell -= dt;
@@ -1066,6 +1038,7 @@ function kick() { if (!looping) { looping = true; last = performance.now(); requ
    rullar fordonet vidare enligt tidtabell + försening.
    ========================================================================= */
 let mode = 'off';
+const DEMO_SPEED = 1.5;
 const live = { ok: false, tried: false, data: null, updated: 0, skew: 0, veh: new Map(), timer: 0 };
 const LIVE_URL = 'api/vehicles';
 let MAX_AHEAD = 3;            // rulla högst så många stopp förbi senaste mätningen
@@ -1078,7 +1051,7 @@ function setMode(m) {
   if (m !== 'api') clearVehicles();
   mode = m;
   document.querySelectorAll('#modes button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-  $('#veh').classList.toggle('demo', m === 'demo');
+  $('#veh')?.classList.toggle('demo', m === 'demo');
   if (m === 'demo') startDemo();
   if (m === 'live') { live.updated = 0; pollLive(); }
   if (m !== 'live') clearTimeout(live.timer);
@@ -1235,6 +1208,7 @@ setInterval(() => selVeh && renderVehPanel(), 1000);
 
 function status() {
   const el = $('#vstatus');
+  if (!el) return;
   if (mode === 'live') {
     const d = live.data;
     if (!d || !d.updated) { el.innerHTML = '<i class="dot-live wait"></i>Väntar på första realtidsdata…'; return; }
@@ -1249,7 +1223,7 @@ function status() {
   else el.textContent = 'Fordon dolda';
 }
 setInterval(() => mode === 'live' && status(), 5000);
-$('#modes').addEventListener('click', e => {
+$('#modes')?.addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
   if (b.dataset.mode === 'live' && !live.ok) { live.tried = false; mode = 'off'; setMode('live'); return; }

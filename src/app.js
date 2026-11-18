@@ -477,9 +477,9 @@ addEventListener('keydown', e => { if (e.key === 'Escape') clearSel(); });
 // Sök
 const byName = {};
 Object.values(ST).forEach(s => { if (s.lines.size) (byName[s.name.toLowerCase()] ||= s.id); });
-$('#stationList').innerHTML = Object.keys(byName).map(k => ST[byName[k]].name).sort((a, b) => a.localeCompare(b, 'sv'))
+if ($('#stationList')) $('#stationList').innerHTML = Object.keys(byName).map(k => ST[byName[k]].name).sort((a, b) => a.localeCompare(b, 'sv'))
   .map(n => `<option value="${n}">`).join('');
-$('#search').addEventListener('change', e => {
+$('#search')?.addEventListener('change', e => {
   const id = byName[e.target.value.trim().toLowerCase()];
   if (!id) return;
   showStation(id); e.target.blur();
@@ -578,7 +578,7 @@ function stopDemo() {
   demo = null;
 }
 function stepDemo(dt) {
-  const sp = +$('#speed').value;
+  const sp = DEMO_SPEED;
   demo.forEach(d => {
     const { route, stops } = LINE[d.line];
     if (d.dwell > 0) d.dwell -= dt;
@@ -613,6 +613,7 @@ function kick() { if (!looping) { looping = true; last = performance.now(); requ
    rullar fordonet vidare enligt tidtabell + försening.
    ========================================================================= */
 let mode = 'off';
+const DEMO_SPEED = 1.5;
 const live = { ok: false, tried: false, data: null, updated: 0, skew: 0, veh: new Map(), timer: 0 };
 const LIVE_URL = 'api/vehicles';
 let MAX_AHEAD = 3;            // rulla högst så många stopp förbi senaste mätningen
@@ -625,7 +626,7 @@ function setMode(m) {
   if (m !== 'api') clearVehicles();
   mode = m;
   document.querySelectorAll('#modes button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-  $('#veh').classList.toggle('demo', m === 'demo');
+  $('#veh')?.classList.toggle('demo', m === 'demo');
   if (m === 'demo') startDemo();
   if (m === 'live') { live.updated = 0; pollLive(); }
   if (m !== 'live') clearTimeout(live.timer);
@@ -782,6 +783,7 @@ setInterval(() => selVeh && renderVehPanel(), 1000);
 
 function status() {
   const el = $('#vstatus');
+  if (!el) return;
   if (mode === 'live') {
     const d = live.data;
     if (!d || !d.updated) { el.innerHTML = '<i class="dot-live wait"></i>Väntar på första realtidsdata…'; return; }
@@ -796,7 +798,7 @@ function status() {
   else el.textContent = 'Fordon dolda';
 }
 setInterval(() => mode === 'live' && status(), 5000);
-$('#modes').addEventListener('click', e => {
+$('#modes')?.addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
   if (b.dataset.mode === 'live' && !live.ok) { live.tried = false; mode = 'off'; setMode('live'); return; }
