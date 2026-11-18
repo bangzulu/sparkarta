@@ -607,8 +607,10 @@ function upsertVehicle(v, tween = true) {
   }
   cur.tgt = pos;
 }
+const TINY_K = 0.7;    // under denna zoom: små prickar utan linjenummer och pil
 function drawVehicles() {
-  const now = performance.now(), s = Math.max(0.6, Math.min(isMobile() ? 1.35 : 2.2, view.k * 1.3));
+  svg.classList.toggle('vtiny', view.k < TINY_K);
+  const now = performance.now(), s = view.k < TINY_K ? Math.max(0.34, view.k) : Math.max(0.6, Math.min(isMobile() ? 1.35 : 2.2, view.k * 1.3));
   vehicles.forEach((v, id) => {
     if (v.t0) {
       const u = Math.min(1, (now - v.t0) / 1200);
