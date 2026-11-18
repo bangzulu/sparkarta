@@ -187,6 +187,17 @@ for (const id in TERMINI) {
   decoEls[id] = grp;
 }
 
+/* ---------- Mobil ---------- */
+const GRAB = '<div class="grab" aria-hidden="true"></div>';
+const isMobile = () => svg.clientWidth < 760;
+// Punkten på skärmen där fokus ska hamna: mitt i den del av kartan som inte täcks av panelen
+function viewCenter() {
+  const W = svg.clientWidth, H = svg.clientHeight, info = $('#info');
+  const open = info.classList.contains('show');
+  if (isMobile()) return [W / 2, open ? (H - info.offsetHeight) / 2 : H / 2];
+  return [open ? (W - 330) / 2 : W / 2, H / 2];
+}
+
 /* ---------- Zoom & panorering ---------- */
 const view = { k: 1, tx: 0, ty: 0 };
 const K_MIN = 0.15, K_MAX = 6;
@@ -204,8 +215,9 @@ function fitTarget(x0, y0, x1, y1, pad = 30) {
   const W = svg.clientWidth, H = svg.clientHeight;
   const rp = $('#info').classList.contains('show') && W >= 760 ? 330 : 0;
   const mob = W < 760, info = $('#info').classList.contains('show');
-  const aw = W - pad * 2 - rp, ah = mob && info ? H * 0.55 - pad * 2 - 60 : H - pad * 2 - (mob ? 60 : 0);
-  const oy = mob ? 60 : 0;
+  const sheet = mob && info ? $('#info').offsetHeight : 0;
+  const aw = W - pad * 2 - rp, ah = H - sheet - pad * 2 - (mob && !info ? 60 : 0);
+  const oy = 0;
   const k = Math.min(K_MAX, Math.max(K_MIN, Math.min(aw / (x1 - x0), ah / (y1 - y0))));
   return { k, tx: pad + aw / 2 - (x0 + x1) / 2 * k, ty: oy + pad + ah / 2 - (y0 + y1) / 2 * k };
 }
@@ -227,6 +239,12 @@ function animateTo(t, ms = 500) {
     if (u < 1) anim = requestAnimationFrame(step); else animating = false;
   };
   anim = requestAnimationFrame(step);
+}
+function startView() {
+  if (!isMobile()) return fitAll(false);
+  const W = svg.clientWidth, H = svg.clientHeight, k = Math.min(W / 820, H / 1750);
+  Object.assign(view, { k, tx: W / 2 - 1745 * k, ty: H / 2 - 1090 * k });
+  applyView();
 }
 const fitAll = a => { const t = fitTarget(590, 60, W0 - 40, H0 - 50, 10); a ? animateTo(t) : (Object.assign(view, t), applyView()); };
 function fitStations(ids) {
@@ -259,6 +277,13 @@ svg.addEventListener('pointermove', e => {
     zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, pinch.k * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d / view.k);
     moved += 10;
   }
+});
+let lastTap = { t: 0, x: 0, y: 0 };
+svg.addEventListener('pointerup', e => {
+  if (e.pointerType !== 'touch' || moved > 6 || pointers.size > 1) return;
+  const now = performance.now();
+  if (now - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) { zoomAt(e.clientX, e.clientY, 2); lastTap.t = 0; }
+  else lastTap = { t: now, x: e.clientX, y: e.clientY };
 });
 const up = e => { pointers.delete(e.pointerId); if (pointers.size < 2) pinch = null; if (!pointers.size) svg.classList.remove('dragging'); };
 svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up);
@@ -320,9 +345,9 @@ function showLineInfo(l, at) {
   info.style.setProperty('--c', colorOf(l));
   const others = at ? [...ST[at].lines].filter(i => i !== l.id).map(i => LINE[i]).sort((a, b) => a.id - b.id) : [];
   const first = ST[l.stops[0]].name, last = ST[l.stops[l.stops.length - 1]].name;
-  info.innerHTML = `<button class="close" aria-label="Stäng">×</button>
+  info.innerHTML = `${GRAB}<div class="hd"><button class="close" aria-label="Stäng">×</button>
     <h2>${chip(l)}<span>${l.name.replace(/\s\d+$/, '')}</span></h2>
-    <div class="sub">${l.desc} · ${l.stops.length} stationer · <span class="vcount"></span></div>
+    <div class="sub">${l.desc} · ${l.stops.length} stationer · <span class="vcount"></span></div></div>
     ${others.length ? `<div class="also"><span>Fler linjer vid ${ST[at].name}:</span><div class="chips">${others.map(o => chip(o, at)).join('')}</div></div>` : ''}
     <div class="lv-head"><span>▲ mot ${first}</span><span>▼ mot ${last}</span></div>
     <div class="lv" data-line="${l.id}">
@@ -453,9 +478,9 @@ function renderStationPanel() {
   }
   const scroll = info.scrollTop;
   info.style.removeProperty('--c');
-  info.innerHTML = `<button class="close" aria-label="Stäng">×</button><h2><span>${names}</span></h2>
+  info.innerHTML = `${GRAB}<div class="hd"><button class="close" aria-label="Stäng">×</button><h2><span>${names}</span></h2>
     <div class="sub">${lines.length > 1 ? (stFilter ? `Visar linje ${stFilter} – klicka igen för alla` : `${lines.length} linjer – välj en för att filtrera`) : '1 linje'}</div>
-    <div class="chips filter">${lines.map(filterChip).join('')}</div>${dep}`;
+    <div class="chips filter">${lines.map(filterChip).join('')}</div></div>${dep}`;
   info.classList.add('show');
   info.scrollTop = scroll;
 }
@@ -489,6 +514,34 @@ $('#info').addEventListener('click', e => {
   if (t.dataset.line) return selectLine(t.dataset.line);
 });
 addEventListener('keydown', e => { if (e.key === 'Escape') clearSel(); });
+(function sheet() {
+  const info = $('#info');
+  let drag = null;
+  const setH = h => info.style.setProperty('--sheet', Math.round(h) + 'px');
+  info.addEventListener('pointerdown', e => {
+    if (!isMobile() || !e.target.closest('.grab,.hd') || e.target.closest('button')) return;
+    drag = { y: e.clientY, h: info.offsetHeight, moved: 0, id: e.pointerId };
+    info.setPointerCapture(e.pointerId);
+    info.classList.add('dragging');
+  });
+  info.addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dy = e.clientY - drag.y;
+    drag.moved = Math.max(drag.moved, Math.abs(dy));
+    setH(Math.max(80, Math.min(innerHeight * 0.92, drag.h - dy)));
+  });
+  const end = e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    info.classList.remove('dragging');
+    const H = innerHeight, h = info.offsetHeight;
+    if (drag.moved < 6) setH(drag.h < H * 0.6 ? H * 0.88 : H * 0.45);   // tryck: växla
+    else if (h < H * 0.25) { info.style.removeProperty('--sheet'); clearSel(); }
+    else setH(h < H * 0.66 ? H * 0.45 : H * 0.88);
+    drag = null;
+  };
+  info.addEventListener('pointerup', end);
+  info.addEventListener('pointercancel', end);
+})();
 
 // Sök
 const byName = {};
@@ -555,7 +608,7 @@ function upsertVehicle(v, tween = true) {
   cur.tgt = pos;
 }
 function drawVehicles() {
-  const now = performance.now(), s = Math.max(0.6, Math.min(2.2, view.k * 1.3));
+  const now = performance.now(), s = Math.max(0.6, Math.min(isMobile() ? 1.35 : 2.2, view.k * 1.3));
   vehicles.forEach((v, id) => {
     if (v.t0) {
       const u = Math.min(1, (now - v.t0) / 1200);
@@ -727,7 +780,7 @@ function stepLive() {
 const hhmm = t => new Date(t * 1000).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
 function zoomToStation(id, minK = 1.6) {
   const s = ST[id], W = svg.clientWidth, H = svg.clientHeight, k = Math.max(view.k, minK);
-  const mob = W < 760, cx = mob ? W / 2 : (W - 330) / 2, cy = mob ? H * 0.3 : H / 2;
+  const [cx, cy] = viewCenter();
   animateTo({ k, tx: cx - s.x * k, ty: cy - s.y * k });
 }
 function setFollow(on) {
@@ -740,7 +793,7 @@ function followStep() {
   const V = vehicles.get(selVeh);
   if (!V) return;
   const W = svg.clientWidth, H = svg.clientHeight, mob = W < 760;
-  const cx = mob ? W / 2 : (W - 330) / 2, cy = mob ? H * 0.3 : H / 2;
+  const [cx, cy] = viewCenter();
   const dx = cx - (V.cur.x * view.k + view.tx), dy = cy - (V.cur.y * view.k + view.ty);
   if (Math.abs(dx) + Math.abs(dy) < 0.5) return;
   view.tx += dx * 0.08; view.ty += dy * 0.08;
@@ -757,7 +810,7 @@ function showVehicle(id) {
   vehEls.get(id).classList.add('vsel');
   renderVehPanel(true);
   const W = svg.clientWidth, H = svg.clientHeight, mob = W < 760, k = Math.max(view.k, 1.5);
-  const cx = mob ? W / 2 : (W - 330) / 2, cy = mob ? H * 0.3 : H / 2;
+  const [cx, cy] = viewCenter();
   animateTo({ k, tx: cx - V.cur.x * k, ty: cy - V.cur.y * k });
   setTimeout(() => selVeh === id && setFollow(true), 520);
 }
@@ -788,10 +841,10 @@ function renderVehPanel(first) {
   const upd = live.data && live.data.updated ? hhmm(live.data.updated) + ':' + String(new Date(live.data.updated * 1000).getSeconds()).padStart(2, '0') : '';
   const scroll = info.querySelector('ol')?.parentNode === info ? info.scrollTop : 0;
   info.style.setProperty('--c', colorOf(l));
-  info.innerHTML = `<button class="close" aria-label="Stäng">×</button>
+  info.innerHTML = `${GRAB}<div class="hd"><button class="close" aria-label="Stäng">×</button>
     <h2>${chip(l)}<span>mot ${ST[v.to].name}</span></h2>
     <div class="sub">${l.name} · <b class="${v.delay >= 120 ? 'bad' : ''}">${delayTxt}</b> · position ${upd}</div>
-    <button class="follow${follow ? ' on' : ''}">${follow ? 'Följer fordonet' : 'Följ fordonet'}</button>
+    <button class="follow${follow ? ' on' : ''}">${follow ? 'Följer fordonet' : 'Följ fordonet'}</button></div>
     <ol class="trip">${rows.join('')}</ol>
     <div class="foot">Tider = tidtabell + aktuell försening (beräknat). Fordon ${v.id}</div>`;
   info.classList.add('show');
@@ -834,7 +887,7 @@ window.TrackMap = {
 (document.fonts?.ready || Promise.resolve()).then(() => fitText.forEach(([t, w]) => {
   if (t.getComputedTextLength() > w) { t.setAttribute('textLength', w); t.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
 }));
-fitAll(false);
+startView();
 // Starta i live-läge om servern svarar, annars demo
 if (/nodemo/.test(location.hash)) setMode('off');
 else if (location.protocol.startsWith('http') || window.SNAPSHOT) setMode('live');
