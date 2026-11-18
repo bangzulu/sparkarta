@@ -83,6 +83,23 @@
   #info .sub b.bad{color:#ff8a80}
   #info .follow{border:1px solid var(--line);background:none;color:var(--ink);font:inherit;font-size:14px;border-radius:7px;padding:4px 10px;margin:0 0 12px;cursor:pointer}
   #info .follow.on{background:var(--y);color:#222;border-color:var(--y);font-weight:600}
+  /* Linjevy */
+  #info .lv-head{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);margin:4px 0 6px;padding:0 4px}
+  #info .lv{position:relative;--rh:30px;--tx:44px}
+  #info .lv-track{position:absolute;left:var(--tx);width:6px;margin-left:-3px;top:calc(var(--rh) / 2);bottom:calc(var(--rh) / 2);
+    background:var(--c);border-radius:3px}
+  #info ol.lv-stops{list-style:none;margin:0;padding:0;border-left:0}
+  #info ol.lv-stops li{height:var(--rh);display:flex;align-items:center;padding:0 0 0 calc(var(--tx) + 42px);position:relative;cursor:pointer}
+  #info .lv-stops li::before{left:var(--tx);top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;background:#fff;border:0}
+  #info .lv-stops li.cur::before{background:var(--y);width:14px;height:14px;margin:-7px 0 0 -7px}
+  #info .lv-stops li.cur span{color:var(--y);font-weight:600}
+  #info .lv-stops li:hover span{color:var(--y)}
+  #info .lv-veh{position:absolute;inset:0;pointer-events:none}
+  #info .vm{position:absolute;left:calc(var(--tx) + 18px);width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;
+    background:var(--c);border:2px solid #fff;color:#fff;font-size:8px;line-height:1;padding:0;display:flex;align-items:center;
+    justify-content:center;cursor:pointer;pointer-events:auto;transition:top .25s linear;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+  #info .vm.up{left:calc(var(--tx) - 18px)}
+  #info .vm.vsel,#info .vm:hover{border-color:var(--y);transform:scale(1.2)}
   #info .branch{margin:16px 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
   #info ol.deps{border-left:0;padding:0}
   #info ol.deps li{display:flex;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}

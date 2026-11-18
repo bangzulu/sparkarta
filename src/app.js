@@ -313,19 +313,64 @@ function chip(l, at) {
   const rx = l.mode === 'pendel' ? 13 : l.mode === 'metro' ? 3 : 8;
   return `<button class="chip" data-line="${l.id}"${at ? ` data-at="${at}"` : ''} style="background:${colorOf(l)};border-radius:${rx}px">${l.id}</button>`;
 }
+/* Linjevy: stationer längs ett spår, med linjens fordon utplacerade mellan stationerna.
+   Fordon mot linjens slut (nedåt i listan) till höger om spåret, mot början till vänster. */
 function showLineInfo(l, at) {
   const info = $('#info');
   info.style.setProperty('--c', colorOf(l));
   const others = at ? [...ST[at].lines].filter(i => i !== l.id).map(i => LINE[i]).sort((a, b) => a.id - b.id) : [];
+  const first = ST[l.stops[0]].name, last = ST[l.stops[l.stops.length - 1]].name;
   info.innerHTML = `<button class="close" aria-label="Stäng">×</button>
     <h2>${chip(l)}<span>${l.name.replace(/\s\d+$/, '')}</span></h2>
-    <div class="sub">${l.desc} · ${l.stops.length} stationer</div>
+    <div class="sub">${l.desc} · ${l.stops.length} stationer · <span class="vcount"></span></div>
     ${others.length ? `<div class="also"><span>Fler linjer vid ${ST[at].name}:</span><div class="chips">${others.map(o => chip(o, at)).join('')}</div></div>` : ''}
-    <ol>${l.stops.map(s => `<li data-st="${s}"${s === at ? ' class="cur"' : ''}>${ST[s].name}</li>`).join('')}</ol>`;
+    <div class="lv-head"><span>▲ mot ${first}</span><span>▼ mot ${last}</span></div>
+    <div class="lv" data-line="${l.id}">
+      <div class="lv-track"></div>
+      <ol class="lv-stops">${l.stops.map(s => `<li data-st="${s}"${s === at ? ' class="cur"' : ''}><span>${ST[s].name}</span></li>`).join('')}</ol>
+      <div class="lv-veh"></div>
+    </div>`;
   info.classList.add('show');
+  updateLineVehicles();
   const cur = info.querySelector('li.cur');
-  if (cur) cur.scrollIntoView({ block: 'nearest' });
+  if (cur) cur.scrollIntoView({ block: 'center' });
 }
+const lvDir = new Map();   // senast kända riktning per fordon
+function updateLineVehicles() {
+  const box = $('#info .lv');
+  if (!box) return;
+  const l = LINE[box.dataset.line], layer = box.querySelector('.lv-veh');
+  const rh = box.querySelector('.lv-stops li')?.offsetHeight || 28;
+  const seen = new Set();
+  vehicles.forEach((V, id) => {
+    if (V.line !== l.id) return;
+    const i = l.stops.indexOf(V.from);
+    if (i < 0) return;
+    const j = V.to != null ? l.stops.indexOf(V.to) : -1;
+    if (V.to != null && j < 0) return;
+    let dir = j >= 0 && j !== i ? Math.sign(j - i) : lvDir.get(id) || 1;
+    lvDir.set(id, dir);
+    const pos = j >= 0 ? i + (j - i) * (V.progress || 0) : i;
+    let m = layer.querySelector(`[data-vid="${CSS.escape(id)}"]`);
+    if (!m) {
+      m = document.createElement('button');
+      m.className = 'vm';
+      m.dataset.vid = id;
+      layer.appendChild(m);
+    }
+    m.classList.toggle('up', dir < 0);
+    m.classList.toggle('vsel', id === selVeh);
+    m.textContent = dir < 0 ? '▲' : '▼';
+    m.style.top = (pos * rh + rh / 2) + 'px';
+    const lv = live.veh.get(id);
+    m.title = lv ? `${l.name} mot ${ST[lv.to].name} · ${fmtDelay(lv.delay)}` : `${l.name} mot ${ST[dir > 0 ? l.stops[l.stops.length - 1] : l.stops[0]].name}`;
+    seen.add(id);
+  });
+  layer.querySelectorAll('.vm').forEach(m => seen.has(m.dataset.vid) || m.remove());
+  const c = $('#info .vcount');
+  if (c) c.textContent = `${seen.size} fordon i trafik`;
+}
+setInterval(updateLineVehicles, 250);
 // Stationer som hör ihop via en bytespunkt
 const GROUP = {};
 PILLS.forEach(([ids]) => { const all = new Set(ids.flatMap(i => GROUP[i] || [i])); all.forEach(i => GROUP[i] = [...all]); });
