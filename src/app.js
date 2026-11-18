@@ -65,7 +65,7 @@ const routeEls = {}, stationEls = {}, decoEls = {};
 const pathD = pts => 'M' + pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('L');
 
 // Rubrik
-const title = el('text', { x: 107, y: 168, class: 'title' }, g('gDeco'));
+const title = el('text', { x: 622, y: 168, class: 'title' }, g('gDeco'));
 title.innerHTML = 'Stockholm · Spårtrafikkarta <tspan class="y" dx="20">Rail Network Map</tspan>';
 el('line', { x1: 618, y1: 228, x2: 2738, y2: 228, class: 'rule' }, g('gDeco'));
 
@@ -187,44 +187,6 @@ for (const id in TERMINI) {
   decoEls[id] = grp;
 }
 
-// Teckenförklaring
-const lg = g('gLegend');
-LEGEND.forEach(sec => {
-  el('line', { x1: 107, y1: sec.y - 22, x2: 582, y2: sec.y - 22, class: 'rule' }, lg);
-  icon(133, sec.y + 13, sec.icon, lg).setAttribute('transform', `translate(133,${sec.y + 13}) scale(1.6)`);
-  const h = el('text', { x: 178, y: sec.y + 7, class: 'lhead' }, lg); h.textContent = sec.head[0];
-  const h2 = el('text', { x: 178, y: sec.y + 37, class: 'lhead y' }, lg); h2.textContent = sec.head[1];
-  el('line', { x1: 107, y1: sec.y + 50, x2: 582, y2: sec.y + 50, class: 'rule' }, lg);
-  sec.rows.forEach(r => {
-    const c = colorOf(LINE[r.lines[0]]);
-    const x0 = 128 + (r.lines.length - 1) * 46;
-    el('line', { x1: x0, y1: r.y, x2: 335, y2: r.y, stroke: c, 'stroke-width': LW }, lg);
-    const s = COLORS[LINE[r.lines[0]].c][1];
-    if (s) el('line', { x1: x0, y1: r.y, x2: 335, y2: r.y, stroke: s, 'stroke-width': 1.6 }, lg);
-    r.lines.forEach((id, i) => badge(128 + i * 46, r.y, id, lg).classList.add('lgbadge'));
-    const t = el('text', { x: 357, y: r.y + 6, class: 'ltxt' }, lg);
-    t.innerHTML = `${r.t[0]} <tspan class="y" dx="6">${r.t[1]}</tspan>`;
-  });
-});
-(function keySymbols() {
-  const y = 980;
-  el('line', { x1: 107, y1: y - 22, x2: 582, y2: y - 22, class: 'rule' }, lg);
-  const h = el('text', { x: 107, y: y + 7, class: 'lhead' }, lg); h.textContent = 'Förklaringar';
-  const h2 = el('text', { x: 107, y: y + 37, class: 'lhead y' }, lg); h2.textContent = 'Key to symbols';
-  el('line', { x1: 107, y1: y + 50, x2: 582, y2: y + 50, class: 'rule' }, lg);
-  icon(126, y + 87, 'plane', lg).setAttribute('transform', `translate(126,${y + 87}) scale(1.3)`);
-  const t1 = el('text', { x: 160, y: y + 82, class: 'ltxt' }, lg); t1.innerHTML = 'Flygplats<tspan class="y" x="160" dy="22">Airport</tspan>';
-  el('line', { x1: 368, y1: y + 78, x2: 392, y2: y + 78, stroke: '#fff', 'stroke-width': 13, 'stroke-linecap': 'round' }, lg);
-  el('line', { x1: 368, y1: y + 78, x2: 392, y2: y + 78, stroke: '#c6c8ca', 'stroke-width': 10, 'stroke-linecap': 'round' }, lg);
-  const t2 = el('text', { x: 412, y: y + 82, class: 'ltxt' }, lg); t2.innerHTML = 'Bytespunkt<tspan class="y" x="412" dy="22">Interchange station</tspan>';
-  el('line', { x1: 366, y1: y + 136, x2: 392, y2: y + 136, stroke: '#c6c8ca', 'stroke-width': 3 }, lg);
-  [366, 392].forEach(cx => el('circle', { cx, cy: y + 136, r: 6, fill: '#c6c8ca', stroke: '#fff', 'stroke-width': 1.5 }, lg));
-  const t3 = el('text', { x: 412, y: y + 140, class: 'ltxt' }, lg);
-  t3.innerHTML = 'Bytespunkt med<tspan x="412" dy="22">gångavstånd</tspan><tspan class="y" x="412" dy="22">Interchange station</tspan><tspan class="y" x="412" dy="22">within walking distance</tspan>';
-  const t4 = el('text', { x: 107, y: y + 300, class: 'ltxt small' }, lg);
-  t4.innerHTML = 'Interaktiv prototyp – klicka på en linje eller station.<tspan x="107" dy="22">Scrolla eller nyp för att zooma, dra för att panorera.</tspan>';
-})();
-
 /* ---------- Zoom & panorering ---------- */
 const view = { k: 1, tx: 0, ty: 0 };
 const K_MIN = 0.15, K_MAX = 6;
@@ -248,8 +210,10 @@ function fitTarget(x0, y0, x1, y1, pad = 30) {
   return { k, tx: pad + aw / 2 - (x0 + x1) / 2 * k, ty: oy + pad + ah / 2 - (y0 + y1) / 2 * k };
 }
 let anim = 0;
+let animating = false;
 function animateTo(t, ms = 500) {
   const s = { ...view }, t0 = performance.now();
+  animating = true;
   cancelAnimationFrame(anim);
   const W = svg.clientWidth / 2, H = svg.clientHeight / 2;
   const cs = [(W - s.tx) / s.k, (H - s.ty) / s.k], ct = [(W - t.tx) / t.k, (H - t.ty) / t.k];
@@ -260,11 +224,11 @@ function animateTo(t, ms = 500) {
     view.tx = W - (cs[0] + (ct[0] - cs[0]) * e) * k;
     view.ty = H - (cs[1] + (ct[1] - cs[1]) * e) * k;
     applyView();
-    if (u < 1) anim = requestAnimationFrame(step);
+    if (u < 1) anim = requestAnimationFrame(step); else animating = false;
   };
   anim = requestAnimationFrame(step);
 }
-const fitAll = a => { const t = fitTarget(0, 40, W0, H0 - 40, 10); a ? animateTo(t) : (Object.assign(view, t), applyView()); };
+const fitAll = a => { const t = fitTarget(590, 60, W0 - 40, H0 - 50, 10); a ? animateTo(t) : (Object.assign(view, t), applyView()); };
 function fitStations(ids) {
   let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
   ids.forEach(id => { const s = ST[id]; x0 = Math.min(x0, s.x); y0 = Math.min(y0, s.y); x1 = Math.max(x1, s.x); y1 = Math.max(y1, s.y); });
@@ -276,7 +240,7 @@ let moved = 0, pinch = null;
 svg.addEventListener('pointerdown', e => {
   svg.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  moved = 0; cancelAnimationFrame(anim);
+  moved = 0; cancelAnimationFrame(anim); animating = false;
   if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), k: view.k }; }
   svg.classList.add('dragging');
 });
@@ -285,7 +249,10 @@ svg.addEventListener('pointermove', e => {
   if (!p) return;
   const dx = e.clientX - p.x, dy = e.clientY - p.y;
   p.x = e.clientX; p.y = e.clientY;
-  if (pointers.size === 1) { view.tx += dx; view.ty += dy; moved += Math.abs(dx) + Math.abs(dy); applyView(); }
+  if (pointers.size === 1) {
+    view.tx += dx; view.ty += dy; moved += Math.abs(dx) + Math.abs(dy); applyView();
+    if (moved > 6 && follow) setFollow(false);
+  }
   else if (pinch) {
     const [a, b] = [...pointers.values()];
     view.tx += dx / 2; view.ty += dy / 2;
@@ -308,8 +275,11 @@ addEventListener('resize', applyView);
 
 /* ---------- Markering ---------- */
 let sel = null, focus = null;
+let selVeh = null, follow = false;
 function clearSel() {
   sel = null;
+  selVeh = null; follow = false;
+  document.querySelectorAll('.veh.vsel').forEach(e => e.classList.remove('vsel'));
   svg.classList.remove('has-sel');
   document.querySelectorAll('.sel').forEach(e => e.classList.remove('sel'));
   setFocus(null);
@@ -388,7 +358,7 @@ svg.addEventListener('click', e => {
   const hitEl = document.elementFromPoint(e.clientX, e.clientY) || e.target;
   const t = hitEl.closest && hitEl.closest('[data-line],[data-st],.veh');
   if (!t) return clearSel();
-  if (t.classList.contains('veh')) return selectLine(vehicles.get(t.dataset.vid).line, false);
+  if (t.classList.contains('veh')) return showVehicle(t.dataset.vid);
   const w = toWorld(e.clientX, e.clientY);
   if (t.dataset.st) {
     // bytespunkter kan omfatta flera stationer – ta den närmaste
@@ -399,9 +369,11 @@ svg.addEventListener('click', e => {
   if (t.dataset.line) return t.closest('#gLegend') ? (sel === t.dataset.line ? clearSel() : selectLine(t.dataset.line)) : selectLine(t.dataset.line, false);
 });
 $('#info').addEventListener('click', e => {
-  const t = e.target.closest('[data-st],[data-line],.close');
+  const t = e.target.closest('[data-st],[data-line],[data-zoom],.close,.follow');
   if (!t) return;
   if (t.classList.contains('close')) return clearSel();
+  if (t.classList.contains('follow')) return setFollow(!follow);
+  if (t.dataset.zoom) { setFollow(false); return zoomToStation(t.dataset.zoom); }
   if (t.dataset.at) return showStation(t.dataset.at, { line: t.dataset.line });
   if (t.dataset.st) return showStation(t.dataset.st);
   if (t.dataset.line) return selectLine(t.dataset.line);
@@ -458,11 +430,13 @@ function upsertVehicle(v, tween = true) {
     const l = LINE[v.line], c = colorOf(l);
     const ge = el('g', { class: 'veh', 'data-vid': v.id }, g('gVehicles'));
     el('path', { d: 'M0,-1 L5.5,-1 L0,8Z', class: 'arrow', fill: '#fff' }, ge);
-    el('circle', { r: 8, fill: c, stroke: '#fff', 'stroke-width': 2 }, ge);
+    el('circle', { r: 16, fill: 'transparent', class: 'vhit' }, ge);
+    el('circle', { r: 8, fill: c, stroke: '#fff', 'stroke-width': 2, class: 'vbody' }, ge);
     el('text', { y: 3.3 }, ge).textContent = v.label ?? l.id;
     el('title', {}, ge).textContent = v.title || `${l.name} mot ${ST[v.to]?.name || ''}`;
     vehEls.set(v.id, ge);
     if (sel) ge.classList.toggle('sel', v.line === sel);
+    if (selVeh === v.id) ge.classList.add('vsel');
   } else {
     Object.assign(cur, v);
     if (tween) { cur.from0 = { ...cur.cur }; cur.t0 = performance.now(); } else if (!cur.t0) cur.cur = pos;
@@ -604,31 +578,114 @@ function applyLive(list) {
     v.title = `${LINE[v.line].name} mot ${ST[v.to]?.name || ''} · ${fmtDelay(v.delay)}`;
     const p = livePos(v, Date.now() / 1000 + live.skew);
     if (!p) return;
+    v.pos = p;
     live.veh.set(v.id, v);
     upsertVehicle({ id: v.id, line: v.line, draw: v.draw, title: v.title, ...p }, vehicles.has(v.id));
   });
   [...live.veh.keys()].forEach(id => { if (!seen.has(id)) { live.veh.delete(id); removeVehicle(id); } });
+  if (selVeh) renderVehPanel();
   kick();
 }
 function livePos(v, now) {
-  const n = v.stops.length;
-  if (n === 1) return { from: v.stops[0], to: null, progress: 0 };
+  const n = v.stops.length, k0 = Math.min(v.k || 0, Math.max(0, n - 2));
+  if (n === 1) return { from: v.stops[0], to: null, progress: 0, seg: 0, at: 0 };
   const t = Math.min(now, v.ts + (live.snapshot ? 1800 : FREEZE_AFTER)) - v.delay;
-  for (let j = 0; j < n - 1 && j <= MAX_AHEAD; j++) {
-    if (t < v.dep[j]) return j === 0 ? { from: v.stops[0], to: v.stops[1], progress: v.f } : { from: v.stops[j], to: v.stops[j + 1], progress: 0 };
+  for (let j = k0; j < n - 1 && j <= k0 + MAX_AHEAD; j++) {
+    if (t < v.dep[j]) {
+      if (j === k0 && v.f >= 0.02) return { from: v.stops[j], to: v.stops[j + 1], progress: v.f, seg: j, at: -1 };
+      return { from: v.stops[j], to: v.stops[j + 1], progress: 0, seg: j, at: j };
+    }
     if (t < v.arr[j + 1]) {
       let p = (t - v.dep[j]) / Math.max(1, v.arr[j + 1] - v.dep[j]);
-      if (j === 0) p = Math.max(p, v.f);
-      return { from: v.stops[j], to: v.stops[j + 1], progress: p };
+      if (j === k0) p = Math.max(p, v.f);
+      return { from: v.stops[j], to: v.stops[j + 1], progress: p, seg: j, at: p >= 0.999 ? j + 1 : -1 };
     }
   }
-  const j = Math.min(n - 1, MAX_AHEAD + 1);
-  return { from: v.stops[j - 1], to: v.stops[j], progress: 1 };
+  const j = Math.min(n - 1, k0 + MAX_AHEAD + 1);
+  return { from: v.stops[j - 1], to: v.stops[j], progress: 1, seg: j - 1, at: j };
 }
 function stepLive() {
   const now = Date.now() / 1000 + live.skew;
-  live.veh.forEach(v => { const p = livePos(v, now); if (p) upsertVehicle({ id: v.id, line: v.line, draw: v.draw, title: v.title, ...p }, false); });
+  live.veh.forEach(v => { const p = livePos(v, now); if (p) { v.pos = p; upsertVehicle({ id: v.id, line: v.line, draw: v.draw, title: v.title, ...p }, false); } });
+  followStep();
 }
+/* ---------- Valt fordon: tur med ankomsttider ---------- */
+const hhmm = t => new Date(t * 1000).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+function zoomToStation(id, minK = 1.6) {
+  const s = ST[id], W = svg.clientWidth, H = svg.clientHeight, k = Math.max(view.k, minK);
+  const mob = W < 760, cx = mob ? W / 2 : (W - 330) / 2, cy = mob ? H * 0.3 : H / 2;
+  animateTo({ k, tx: cx - s.x * k, ty: cy - s.y * k });
+}
+function setFollow(on) {
+  follow = on;
+  const b = $('#info .follow');
+  if (b) { b.classList.toggle('on', on); b.textContent = on ? 'Följer fordonet' : 'Följ fordonet'; }
+}
+function followStep() {
+  if (!follow || !selVeh || animating || pointers.size) return;
+  const V = vehicles.get(selVeh);
+  if (!V) return;
+  const W = svg.clientWidth, H = svg.clientHeight, mob = W < 760;
+  const cx = mob ? W / 2 : (W - 330) / 2, cy = mob ? H * 0.3 : H / 2;
+  const dx = cx - (V.cur.x * view.k + view.tx), dy = cy - (V.cur.y * view.k + view.ty);
+  if (Math.abs(dx) + Math.abs(dy) < 0.5) return;
+  view.tx += dx * 0.08; view.ty += dy * 0.08;
+  applyView();
+}
+function showVehicle(id) {
+  const V = vehicles.get(id), v = live.veh.get(id);
+  if (!V) return;
+  if (!v) return selectLine(V.line, false);          // demofordon saknar tidtabell
+  if (sel !== v.line) selectLine(v.line, false);
+  setFocus(null);
+  selVeh = id;
+  document.querySelectorAll('.veh.vsel').forEach(e => e.classList.remove('vsel'));
+  vehEls.get(id).classList.add('vsel');
+  renderVehPanel(true);
+  const W = svg.clientWidth, H = svg.clientHeight, mob = W < 760, k = Math.max(view.k, 1.5);
+  const cx = mob ? W / 2 : (W - 330) / 2, cy = mob ? H * 0.3 : H / 2;
+  animateTo({ k, tx: cx - V.cur.x * k, ty: cy - V.cur.y * k });
+  setTimeout(() => selVeh === id && setFollow(true), 520);
+}
+function renderVehPanel(first) {
+  const info = $('#info'), v = live.veh.get(selVeh);
+  if (!v) {
+    const sub = info.querySelector('.sub');
+    if (sub) sub.textContent = 'Fordonet finns inte längre i realtidsflödet.';
+    return;
+  }
+  const l = LINE[v.line], now = Date.now() / 1000 + live.skew, p = v.pos || livePos(v, now);
+  const n = v.stops.length;
+  const next = p.at >= 0 ? p.at : p.seg + 1;      // första stopp som inte passerats
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    const sched = i === 0 ? v.dep[0] : v.arr[i], est = sched + v.delay;
+    const passed = i < next, here = i === p.at;
+    const late = Math.abs(v.delay) >= 60 && !passed;
+    const mins = Math.round((est - now) / 60);
+    const rel = here ? 'här nu' : !passed && i >= next ? (mins <= 0 ? 'nu' : `${mins} min`) : '';
+    const plat = v.plat && v.plat[i] ? `<span class="pl">spår ${v.plat[i]}</span>` : '';
+    if (i === p.seg + 1 && p.at < 0) rows.push(`<li class="mark"><span class="tm"></span><span class="nm">Mellan ${ST[v.stops[p.seg]].name} och ${ST[v.stops[i]].name}</span></li>`);
+    rows.push(`<li data-zoom="${v.stops[i]}" class="${passed && !here ? 'passed' : ''}${here ? ' here' : ''}${i === next && !here ? ' next' : ''}">
+      <span class="tm">${hhmm(est)}${late ? `<s>${hhmm(sched)}</s>` : ''}</span>
+      <span class="nm">${ST[v.stops[i]].name}${plat}</span><span class="rel">${rel}</span></li>`);
+  }
+  const delayTxt = Math.abs(v.delay) < 60 ? 'I tid' : v.delay > 0 ? `${Math.round(v.delay / 60)} min sen` : `${Math.round(-v.delay / 60)} min tidig`;
+  const upd = live.data && live.data.updated ? hhmm(live.data.updated) + ':' + String(new Date(live.data.updated * 1000).getSeconds()).padStart(2, '0') : '';
+  const scroll = info.querySelector('ol')?.parentNode === info ? info.scrollTop : 0;
+  info.style.setProperty('--c', colorOf(l));
+  info.innerHTML = `<button class="close" aria-label="Stäng">×</button>
+    <h2>${chip(l)}<span>mot ${ST[v.to].name}</span></h2>
+    <div class="sub">${l.name} · <b class="${v.delay >= 120 ? 'bad' : ''}">${delayTxt}</b> · position ${upd}</div>
+    <button class="follow${follow ? ' on' : ''}">${follow ? 'Följer fordonet' : 'Följ fordonet'}</button>
+    <ol class="trip">${rows.join('')}</ol>
+    <div class="foot">Tider = tidtabell + aktuell försening (beräknat). Fordon ${v.id}</div>`;
+  info.classList.add('show');
+  if (first) { const nx = info.querySelector('li.next,li.here'); if (nx) nx.scrollIntoView({ block: 'center' }); }
+  else info.scrollTop = scroll;
+}
+setInterval(() => selVeh && renderVehPanel(), 1000);
+
 function status() {
   const el = $('#vstatus');
   if (mode === 'live') {

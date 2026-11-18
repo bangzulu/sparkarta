@@ -193,7 +193,7 @@ def hms(s):
 def build_static():
     zpath = static_zip_path()
     pkl = CACHE / f'{OPERATOR}.parsed.pkl'
-    stamp = (zpath.stat().st_mtime, zpath.stat().st_size, (HERE / 'network.json').stat().st_mtime, 4)
+    stamp = (zpath.stat().st_mtime, zpath.stat().st_size, (HERE / 'network.json').stat().st_mtime, 5)
     if pkl.exists():
         try:
             data = pickle.loads(pkl.read_bytes())
@@ -207,7 +207,8 @@ def build_static():
     with zipfile.ZipFile(zpath) as zf:
         stops = {}
         for r in read_csv(zf, 'stops.txt'):
-            stops[r['stop_id']] = (r['stop_name'], float(r['stop_lat'] or 0), float(r['stop_lon'] or 0), r.get('parent_station') or '')
+            stops[r['stop_id']] = (r['stop_name'], float(r['stop_lat'] or 0), float(r['stop_lon'] or 0), r.get('parent_station') or '',
+                                   r.get('platform_code') or '')
         route_line = {}
         for r in read_csv(zf, 'routes.txt'):
             try:
@@ -237,7 +238,7 @@ def build_static():
         rows.sort()
         out = []
         for seq, stop_id, arr, dep in rows:
-            name, lat, lon, parent = stops.get(stop_id, ('', 0, 0, ''))
+            name, lat, lon, parent, plat = stops.get(stop_id, ('', 0, 0, '', ''))
             pname = stops[parent][0] if parent in stops else name
             sid = match_station(lid, pname) or match_station(lid, name)
             if not sid:
@@ -247,7 +248,7 @@ def build_static():
                 out[-1]['dep'] = d
                 out[-1]['ids'].append(stop_id)
                 continue
-            out.append({'st': sid, 'lat': lat, 'lon': lon, 'arr': a, 'dep': d, 'seq': seq, 'ids': [stop_id]})
+            out.append({'st': sid, 'lat': lat, 'lon': lon, 'arr': a, 'dep': d, 'seq': seq, 'ids': [stop_id], 'plat': plat})
         if len(out) < 2:
             continue
         # Rita turen på den linje i familjen som innehåller flest av dess stationer
@@ -351,10 +352,12 @@ def process_feed(feed, static):
             'trip': tid,
             'ts': ts,
             'delay': round(delay),
+            'k': k,                                   # index för sträckan fordonet är på
             'f': round(f, 4),
-            'stops': [s['st'] for s in stops[k:]],
-            'arr': [round(t) for t in arr[k:]],
-            'dep': [round(t) for t in dep[k:]],
+            'stops': [s['st'] for s in stops],
+            'arr': [round(t) for t in arr],
+            'dep': [round(t) for t in dep],
+            'plat': [s.get('plat', '') for s in stops],
             'to': stops[-1]['st'],
             'dist': round(dist),
         })

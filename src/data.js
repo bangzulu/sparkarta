@@ -288,20 +288,3 @@ const TERMINI = {
   cty: [['t', 1885, 1118, 'STOCKHOLM CITY', 'end'], ['i', 1870, 1068, 'info']],
   kgdt: [['b', 2098, 1093, '10'], ['b', 2145, 1093, '11'], ['i', 2186, 1093, 'metro'], ['t', 2208, 1093, 'KUNGSTRÄDGÅRDEN']],
 };
-
-/* Teckenförklaring (vänsterspalt) */
-const LEGEND = [
-  { head: ['Tunnelbana', 'Metro'], icon: 'metro', y: 250, rows: [
-    { y: 326, lines: ['10', '11'], t: ['Blå linjen', 'Blue Line'] },
-    { y: 368, lines: ['13', '14'], t: ['Röda linjen', 'Red Line'] },
-    { y: 410, lines: ['17', '18', '19'], t: ['Gröna linjen', 'Green Line'] }] },
-  { head: ['Pendeltåg', 'Commuter rail'], icon: 'train', y: 478, rows: [
-    { y: 556, lines: ['40', '41', '43', '48'], t: ['Pendeltåg', 'Commuter rail'] }] },
-  { head: ['Spårvagn / Lokalbana', 'Tram / Light rail'], icon: 'train', y: 624, rows: [
-    { y: 702, lines: ['7'], t: ['Spårväg City', 'Tram'] },
-    { y: 744, lines: ['12'], t: ['Nockebybanan', 'Tram'] },
-    { y: 786, lines: ['21'], t: ['Lidingöbanan', 'Tram'] },
-    { y: 828, lines: ['30', '31'], t: ['Tvärbanan', 'Tram'] },
-    { y: 870, lines: ['25', '26'], t: ['Saltsjöbanan', 'Light rail'] },
-    { y: 912, lines: ['27', '28', '29'], t: ['Roslagsbanan', 'Light rail'] }] },
-];
