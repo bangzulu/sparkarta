@@ -274,10 +274,10 @@ $('#zfit').onclick = () => fitAll(true);
 addEventListener('resize', applyView);
 
 /* ---------- Markering ---------- */
-let sel = null, focus = null;
+let sel = null, focus = null, selSet = new Set(), stPanel = null;
 let selVeh = null, follow = false;
 function clearSel() {
-  sel = null;
+  sel = null; selSet = new Set(); stPanel = null;
   selVeh = null; follow = false;
   document.querySelectorAll('.veh.vsel').forEach(e => e.classList.remove('vsel'));
   svg.classList.remove('has-sel');
@@ -290,20 +290,25 @@ function setFocus(id) {
   focus = id;
   if (id) (stationEls[id] || []).forEach(e => e.classList.add('focus'));
 }
-function selectLine(id, zoom = true) {
-  const l = LINE[id];
-  if (!l) return;
+/* Markera en eller flera linjer – övriga tonas ner och deras fordon döljs */
+function selectLines(ids, { zoom = true, info = true } = {}) {
+  ids = ids.filter(id => LINE[id]);
+  if (!ids.length) return;
   clearSel();
-  sel = id;
+  selSet = new Set(ids);
+  sel = ids.length === 1 ? ids[0] : null;
   svg.classList.add('has-sel');
-  routeEls[id].classList.add('sel');
-  routeEls[id].parentNode.appendChild(routeEls[id]);
-  l.stops.forEach(s => (stationEls[s] || []).forEach(e => e.classList.add('sel')));
-  document.querySelectorAll(`.badge[data-line="${id}"]`).forEach(e => e.classList.add('sel'));
-  vehEls.forEach((el, vid) => el.classList.toggle('sel', vehicles.get(vid).line === id));
-  showLineInfo(l);
-  if (zoom) fitStations(l.stops);
+  ids.forEach(id => {
+    routeEls[id].classList.add('sel');
+    routeEls[id].parentNode.appendChild(routeEls[id]);
+    LINE[id].stops.forEach(s => (stationEls[s] || []).forEach(e => e.classList.add('sel')));
+    document.querySelectorAll(`.badge[data-line="${id}"]`).forEach(e => e.classList.add('sel'));
+  });
+  vehEls.forEach((el, vid) => el.classList.toggle('sel', selSet.has(vehicles.get(vid).line)));
+  if (info && sel) showLineInfo(LINE[sel]);
+  if (zoom) fitStations([...new Set(ids.flatMap(id => LINE[id].stops))]);
 }
+const selectLine = (id, zoom = true) => selectLines([id], { zoom });
 function chip(l, at) {
   const rx = l.mode === 'pendel' ? 13 : l.mode === 'metro' ? 3 : 8;
   return `<button class="chip" data-line="${l.id}"${at ? ` data-at="${at}"` : ''} style="background:${colorOf(l)};border-radius:${rx}px">${l.id}</button>`;
@@ -321,6 +326,10 @@ function showLineInfo(l, at) {
   const cur = info.querySelector('li.cur');
   if (cur) cur.scrollIntoView({ block: 'nearest' });
 }
+// Stationer som hör ihop via en bytespunkt
+const GROUP = {};
+PILLS.forEach(([ids]) => { const all = new Set(ids.flatMap(i => GROUP[i] || [i])); all.forEach(i => GROUP[i] = [...all]); });
+const groupOf = id => GROUP[id] || [id];
 // Världskoordinat från skärmpunkt
 const toWorld = (cx, cy) => { const r = svg.getBoundingClientRect(); return [(cx - r.left - view.tx) / view.k, (cy - r.top - view.ty) / view.k]; };
 // Linjen (bland stationens linjer) vars geometri ligger närmast punkten
@@ -336,22 +345,61 @@ function nearestLine(id, wx, wy) {
 }
 /* Fokusera en station: markera en linje som trafikerar den, tona ner resten, zooma in.
    opts.line = önskad linje, opts.at = [wx, wy] klickpunkt för att välja närmaste linje */
+/* Station: alla linjer som stannar där (inkl. bytespunktens andra noder) markeras.
+   opts.line = visa bara den linjen (används från linjelistan och linjeknapparna). */
 function showStation(id, opts = {}) {
   const s = ST[id];
   if (!s || !s.lines.size) return;
-  const line = opts.line && s.lines.has(opts.line) ? opts.line
-    : sel && s.lines.has(sel) ? sel
-    : nearestLine(id, ...(opts.at || []));
-  if (sel !== line) selectLine(line, false);
-  showLineInfo(LINE[line], id);
-  setFocus(id);
-  if (opts.zoom !== false) {
-    const W = svg.clientWidth, H = svg.clientHeight, k = Math.max(view.k, 1.6);
-    const mob = W < 760;
-    const cx = mob ? W / 2 : (W - 330) / 2, cy = mob ? H * 0.3 : H / 2;
-    animateTo({ k, tx: cx - s.x * k, ty: cy - s.y * k });
+  const keep = opts.line ? opts.line : opts.fromList && sel && s.lines.has(sel) ? sel : null;
+  if (keep) {
+    if (sel !== keep) selectLine(keep, false);
+    showLineInfo(LINE[keep], id);
+  } else {
+    const lines = [...new Set(groupOf(id).flatMap(g => [...ST[g].lines]))].sort((a, b) => a - b);
+    selectLines(lines, { zoom: false, info: false });
+    stPanel = id;
+    renderStationPanel();
   }
+  setFocus(id);
+  if (opts.zoom !== false) zoomToStation(id);
 }
+function renderStationPanel() {
+  const id = stPanel, s = ST[id], info = $('#info');
+  const grp = groupOf(id);
+  const lines = [...selSet].map(i => LINE[i]);
+  const names = [...new Set(grp.map(g => ST[g].name))].join(' / ');
+  let dep = '';
+  if (mode === 'live' && live.veh.size) {
+    const now = Date.now() / 1000 + live.skew, rows = [];
+    live.veh.forEach(v => {
+      const p = v.pos; if (!p) return;
+      const next = p.at >= 0 ? p.at : p.seg + 1;
+      for (let i = next; i < v.stops.length; i++) {
+        if (!grp.includes(v.stops[i])) continue;
+        const last = i === v.stops.length - 1;
+        const t = (i === 0 ? v.dep[0] : v.arr[i]) + v.delay;
+        if (t < now - 60) break;
+        rows.push({ v, t, last, here: p.at === i });
+        break;
+      }
+    });
+    rows.sort((a, b) => a.t - b.t);
+    dep = rows.length ? `<div class="branch">Nästa tåg</div><ol class="deps">${rows.slice(0, 14).map(r => {
+      const l = LINE[r.v.line], m = Math.round((r.t - now) / 60);
+      const rel = r.here ? 'här nu' : m <= 0 ? 'nu' : `${m} min`;
+      const late = Math.abs(r.v.delay) >= 60 ? ` <span class="${r.v.delay >= 120 ? 'bad' : 'muted'}">${fmtDelay(r.v.delay)}</span>` : '';
+      return `<li data-vid="${r.v.id}"><span class="tm">${hhmm(r.t)}</span>${chip(l)}<span class="nm">${r.last ? 'Slutstation' : ST[r.v.to].name}${late}</span><span class="rel">${rel}</span></li>`;
+    }).join('')}</ol>` : '<div class="sub">Inga tåg på väg hit just nu.</div>';
+  }
+  const scroll = info.scrollTop;
+  info.style.removeProperty('--c');
+  info.innerHTML = `<button class="close" aria-label="Stäng">×</button><h2><span>${names}</span></h2>
+    <div class="sub">${lines.length} linje${lines.length > 1 ? 'r' : ''} – klicka på en för att bara visa den</div>
+    <div class="chips">${lines.map(l => chip(l, id)).join('')}</div>${dep}`;
+  info.classList.add('show');
+  info.scrollTop = scroll;
+}
+setInterval(() => stPanel && !selVeh && renderStationPanel(), 2000);
 svg.addEventListener('click', e => {
   if (moved > 5) return;
   // pointer capture gör att click riktas mot svg-elementet – slå upp verkligt mål
@@ -369,13 +417,14 @@ svg.addEventListener('click', e => {
   if (t.dataset.line) return t.closest('#gLegend') ? (sel === t.dataset.line ? clearSel() : selectLine(t.dataset.line)) : selectLine(t.dataset.line, false);
 });
 $('#info').addEventListener('click', e => {
-  const t = e.target.closest('[data-st],[data-line],[data-zoom],.close,.follow');
+  const t = e.target.closest('[data-st],[data-line],[data-zoom],[data-vid],.close,.follow');
   if (!t) return;
   if (t.classList.contains('close')) return clearSel();
   if (t.classList.contains('follow')) return setFollow(!follow);
   if (t.dataset.zoom) { setFollow(false); return zoomToStation(t.dataset.zoom); }
   if (t.dataset.at) return showStation(t.dataset.at, { line: t.dataset.line });
-  if (t.dataset.st) return showStation(t.dataset.st);
+  if (t.dataset.vid) return showVehicle(t.dataset.vid);
+  if (t.dataset.st) return showStation(t.dataset.st, { fromList: true });
   if (t.dataset.line) return selectLine(t.dataset.line);
 });
 addEventListener('keydown', e => { if (e.key === 'Escape') clearSel(); });
@@ -430,12 +479,12 @@ function upsertVehicle(v, tween = true) {
     const l = LINE[v.line], c = colorOf(l);
     const ge = el('g', { class: 'veh', 'data-vid': v.id }, g('gVehicles'));
     el('path', { d: 'M0,-1 L5.5,-1 L0,8Z', class: 'arrow', fill: '#fff' }, ge);
-    el('circle', { r: 16, fill: 'transparent', class: 'vhit' }, ge);
+    el('circle', { r: 12, fill: 'transparent', class: 'vhit' }, ge);
     el('circle', { r: 8, fill: c, stroke: '#fff', 'stroke-width': 2, class: 'vbody' }, ge);
     el('text', { y: 3.3 }, ge).textContent = v.label ?? l.id;
     el('title', {}, ge).textContent = v.title || `${l.name} mot ${ST[v.to]?.name || ''}`;
     vehEls.set(v.id, ge);
-    if (sel) ge.classList.toggle('sel', v.line === sel);
+    if (selSet.size) ge.classList.toggle('sel', selSet.has(v.line));
     if (selVeh === v.id) ge.classList.add('vsel');
   } else {
     Object.assign(cur, v);
