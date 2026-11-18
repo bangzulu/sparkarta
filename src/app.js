@@ -592,7 +592,7 @@ function upsertVehicle(v, tween = true) {
     vehicles.set(v.id, cur);
     const l = LINE[v.line], c = colorOf(l);
     const ge = el('g', { class: 'veh', 'data-vid': v.id }, g('gVehicles'));
-    el('path', { d: 'M0,-1 L5.5,-1 L0,8Z', class: 'arrow', fill: '#fff' }, ge);
+    el('path', { d: 'M-5.5,-1 L5.5,-1 L0,8.5Z', class: 'arrow', fill: '#fff' }, ge);
     el('circle', { r: 12, fill: 'transparent', class: 'vhit' }, ge);
     el('circle', { r: 8, fill: c, stroke: '#fff', 'stroke-width': 2, class: 'vbody' }, ge);
     el('text', { y: 3.3 }, ge).textContent = v.label ?? l.id;
@@ -610,7 +610,7 @@ function upsertVehicle(v, tween = true) {
 const TINY_K = 0.7;    // under denna zoom: små prickar utan linjenummer och pil
 function drawVehicles() {
   svg.classList.toggle('vtiny', view.k < TINY_K);
-  const now = performance.now(), s = view.k < TINY_K ? Math.max(0.34, view.k) : Math.max(0.6, Math.min(isMobile() ? 1.35 : 2.2, view.k * 1.3));
+  const now = performance.now(), s = view.k < TINY_K ? Math.max(0.34, view.k) : Math.max(0.95, view.k * 0.8);   // följer linjebredden vid inzoomning (≈1,2 × linjen)
   vehicles.forEach((v, id) => {
     if (v.t0) {
       const u = Math.min(1, (now - v.t0) / 1200);
