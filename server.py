@@ -433,10 +433,21 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def snapshot(outfile):
-    """Engångskörning för GitHub Actions: hämta realtid en gång och skriv JSON-fil."""
-    static = build_static()
-    url = f'{BASE_URL}/gtfs-rt/{OPERATOR}/VehiclePositions.pb?key={RT_KEY}'
+    """Engångskörning för GitHub Actions: hämta realtid en gång och skriv JSON-fil.
+    Misslyckas något (t.ex. saknade nycklar) publiceras kartan ändå, utan fordon."""
     out = {'now': time.time(), 'updated': 0, 'static': True, 'poll': 300, 'error': None, 'stats': {}, 'vehicles': []}
+    p = Path(outfile)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if not RT_KEY:
+            raise RuntimeError('TRAFIKLAB_RT_KEY saknas (lägg in den som repo-hemlighet)')
+        static = build_static()
+    except (Exception, SystemExit) as e:
+        out['error'] = str(e)
+        log.error('Kan inte hämta data: %s', e)
+        p.write_text(json.dumps(out, ensure_ascii=False), encoding='utf-8')
+        return
+    url = f'{BASE_URL}/gtfs-rt/{OPERATOR}/VehiclePositions.pb?key={RT_KEY}'
     try:
         r = session.get(url, timeout=60)
         r.raise_for_status()
@@ -448,8 +459,6 @@ def snapshot(outfile):
     except Exception as e:
         out['error'] = str(e)
         log.warning('Realtid misslyckades: %s', e)
-    p = Path(outfile)
-    p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(out, ensure_ascii=False), encoding='utf-8')
 
 
