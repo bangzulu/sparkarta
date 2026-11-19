@@ -250,7 +250,7 @@ const PILLS = [
 /* Ändhållplatser och större stationer: ikoner, linjebrickor, versala namn.
    ['i', x, y, typ] ikon (metro/train/plane/info) · ['b', x, y, linje] bricka · ['t', x, y, text, ankare] */
 /* Manuell förskjutning av ändstationens brickor/namn (ersätter den automatiska) */
-const TERM_SHIFT = { bal: [-22, -7], mst: [-25, -7], gne: [-22, 18] };
+const TERM_SHIFT = { bal: [-22, -7], mst: [-25, -7], gne: [-22, 21], hag: [-18, 12] };
 const TERMINI = {
   bal: [['i', 644, 382, 'train'], ['b', 686, 382, '43'], ['t', 718, 382, 'BÅLSTA']],
   hjs: [['i', 975, 515, 'metro'], ['b', 1014, 515, '10'], ['t', 1046, 515, 'HJULSTA']],
