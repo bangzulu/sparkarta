@@ -106,7 +106,6 @@ PILLS.forEach(([ids, x1, y1, x2, y2, type]) => {
 
 // Stationspunkter och etiketter
 const ROT = 45, LH = 17;
-const LBL = [];
 function label(st) {
   let L = st.lab;
   if (!L) return;
@@ -131,7 +130,6 @@ function label(st) {
     sp.textContent = s;
   });
   (stationEls[st.id] = stationEls[st.id] || []).push(t);
-  LBL.push({ el: t, id: st.id, x: P[0], y: P[1], anchor: P[2], rot: P[3] * Math.PI / 180, n: lines.length, w: 0 });
 }
 for (const id in ST) {
   const st = ST[id];
@@ -222,54 +220,10 @@ function shiftTerminus(id, grp) {
   grp.dataset.dx = dx; grp.dataset.dy = dy;
 }
 
-/* ---------- Etiketter: läsbar storlek och krockfri ----------
-   Etiketterna blir aldrig mindre än MIN_PX på skärmen. Vid utzoomning växer de därför i
-   kartans mått, och de som då krockar döljs – bytesstationer och vald linje först. */
-const MIN_PX = 11.5, BASE_FS = 17;
-let lblK = 0, lblTimer = 0;
-function scheduleLabels(force) {
-  if (!force && lblK && Math.abs(view.k / lblK - 1) < 0.06) return;
-  clearTimeout(lblTimer);
-  lblTimer = setTimeout(layoutLabels, force ? 0 : 120);
-}
-function layoutLabels() {
-  lblK = view.k;
-  const fs = Math.max(BASE_FS, MIN_PX / view.k), s = fs / BASE_FS;
-  svg.style.setProperty('--lfs', fs.toFixed(2) + 'px');
-  if (!LBL[0].w) LBL.forEach(L => { L.w = Math.max(...[...L.el.children].map(sp => sp.getComputedTextLength())) || 40; });
-  const isPri = L => PILL_OF[L.id] || new Set([...ST[L.id].lines].map(l => LINE[l].c)).size > 1;
-  const isSel = L => selSet.size && [...ST[L.id].lines].some(l => selSet.has(l));
-  const order = LBL.map((L, i) => [L, (isSel(L) ? 4 : 0) + (isPri(L) ? 2 : 0) + (L.id === focus ? 8 : 0), i])
-    .sort((a, b) => b[1] - a[1] || a[2] - b[2]);
-  // Rutnät med upptagna cirklar (varje etikett approximeras av en kedja cirklar längs texten)
-  const cell = fs * 1.2, grid = new Map(), key = (i, j) => i * 100003 + j;
-  const put = c => { const k = key(Math.floor(c[0] / cell), Math.floor(c[1] / cell)); (grid.get(k) || grid.set(k, []).get(k)).push(c); };
-  const hits = c => {
-    const ci = Math.floor(c[0] / cell), cj = Math.floor(c[1] / cell);
-    for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) {
-      for (const o of grid.get(key(i, j)) || []) if (Math.hypot(o[0] - c[0], o[1] - c[1]) < o[2] + c[2] - 1) return true;
-    }
-    return false;
-  };
-  const chain = L => {
-    const w = L.w * s, h = (L.n - 1) * LH * s + fs * 0.82, r = h / 2;
-    const ux = Math.cos(L.rot), uy = Math.sin(L.rot);
-    const a0 = L.anchor === 'start' ? 0 : L.anchor === 'end' ? -w : -w / 2;
-    const out = [];
-    for (let d = a0 + r; d <= a0 + w - r + 0.1 || out.length === 0; d += r) out.push([L.x + ux * d, L.y + uy * d, r]);
-    return out;
-  };
-  // Hinder: ändstationernas versala namn
-  document.querySelectorAll('#gDeco .tlbl').forEach(t => {
-    const b = t.getBBox(), tr = t.closest('.term'), ox = +(tr?.dataset.dx || 0), oy = +(tr?.dataset.dy || 0), r = b.height / 2;
-    for (let x = b.x + r; x <= b.x + b.width - r + 0.1; x += r) put([x + ox, b.y + r + oy, r]);
-  });
-  for (const [L] of order) {
-    const c = chain(L), show = !c.some(hits);
-    if (show) c.forEach(put);
-    L.el.classList.toggle('hid', !show);
-  }
-}
+/* ---------- Etiketter ----------
+   Vid kraftig utzoomning släcks stationsnamnen; ändstationernas namn (gDeco) ligger kvar. */
+const LOD_K = 0.4;
+function scheduleLabels() { svg.classList.toggle('lod', view.k < LOD_K); }
 
 /* ---------- Mobil ---------- */
 const GRAB = '<div class="grab" aria-hidden="true"></div>';
@@ -395,7 +349,6 @@ function clearSel() {
   setFocus(null);
   $('#info').classList.remove('show');
   renderAlertMarkers();
-  if (LBL.length && LBL[0].w) scheduleLabels(true);
 }
 function setFocus(id) {
   document.querySelectorAll('.focus').forEach(e => e.classList.remove('focus'));
@@ -419,7 +372,6 @@ function selectLines(ids, { zoom = true, info = true } = {}) {
   vehEls.forEach((el, vid) => el.classList.toggle('sel', selSet.has(vehicles.get(vid).line)));
   if (info && sel) showLineInfo(LINE[sel]);
   renderAlertMarkers();
-  scheduleLabels(true);
   if (zoom) fitStations([...new Set(ids.flatMap(id => LINE[id].stops))]);
 }
 const selectLine = (id, zoom = true) => selectLines([id], { zoom });
@@ -1280,7 +1232,6 @@ window.TrackMap = {
   setView: (k, tx, ty) => { Object.assign(view, { k, tx, ty }); applyView(); },
 };
 
-(document.fonts?.ready || Promise.resolve()).then(() => scheduleLabels(true));
 (document.fonts?.ready || Promise.resolve()).then(() => fitText.forEach(([t, w]) => {
   if (t.getComputedTextLength() > w) { t.setAttribute('textLength', w); t.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
 }));

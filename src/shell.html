@@ -19,7 +19,7 @@
   .hit{fill:none;stroke:transparent;stroke-width:22;pointer-events:stroke;cursor:pointer}
   .dot{fill:#fff;cursor:pointer;stroke:transparent;stroke-width:12}
   .pill{cursor:pointer}
-  .lbl{font-size:var(--lfs,17px);font-weight:500;fill:var(--ink);cursor:pointer}
+  .lbl{font-size:17px;font-weight:500;fill:var(--ink);cursor:pointer}
   .tlbl{font-size:23px;font-weight:500;fill:var(--ink);letter-spacing:1.6px}
   .title{font-size:104px;font-weight:600;fill:var(--ink);letter-spacing:-.5px}
   .rule{stroke:#8a9096;stroke-width:1.5}
@@ -30,8 +30,7 @@
   #map .y{fill:var(--y)}
   .badge{cursor:pointer}
   .oneway{fill:none;stroke:#fff;stroke-width:1.6}
-  .lbl.hid{display:none}
-  #map.has-sel .lbl.sel.hid{display:none}
+  #map.lod .lbl{display:none}
 
   #map.has-sel .route:not(.sel){opacity:.22;filter:saturate(.35) brightness(.55)}
   #map.has-sel .dot:not(.sel),#map.has-sel .pill:not(.sel),#map.has-sel .lbl:not(.sel),
