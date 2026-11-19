@@ -1456,6 +1456,60 @@ function alertIcon(cat, parent, x, y, n) {
     const t = el('text', { x: 10, y: -5.6, class: 'acount' }, grp); t.textContent = n;
   }
 }
+/* Placering av störningsmarkör vid en station: den av åtta riktningar som håller sig
+   fri från stationsnamn, ändstationsbrickor och linjer (namnen ligger ofta på ena sidan). */
+let OBST = null;
+function obstacles() {
+  if (OBST) return OBST;
+  const lod = svg.classList.contains('lod');
+  if (lod) svg.classList.remove('lod');
+  const circ = [];
+  document.querySelectorAll('#gLabels .lbl').forEach(t => {
+    const b = t.getBBox(); if (!b.width) return;
+    const m = (t.getAttribute('transform') || '').match(/rotate\(([-\d.]+) ([-\d.]+) ([-\d.]+)\)/);
+    const a = m ? +m[1] * Math.PI / 180 : 0, ox = m ? +m[2] : 0, oy = m ? +m[3] : 0;
+    const rot = (x, y) => m ? [ox + (x - ox) * Math.cos(a) - (y - oy) * Math.sin(a), oy + (x - ox) * Math.sin(a) + (y - oy) * Math.cos(a)] : [x, y];
+    const r = Math.min(b.height, 18) / 2;
+    for (let yy = b.y + r; yy <= b.y + b.height - r + 0.1; yy += r * 1.6)
+      for (let xx = b.x + r; xx <= b.x + b.width - r + 0.1; xx += r) circ.push([...rot(xx, yy), r]);
+  });
+  document.querySelectorAll('#gDeco .term').forEach(tg => {
+    const ox = +(tg.dataset.dx || 0), oy = +(tg.dataset.dy || 0);
+    [...tg.children].forEach(c => {
+      const b = c.getBBox(); if (!b.width) return;
+      const tr = (c.getAttribute('transform') || '').match(/translate\(([-\d.]+),([-\d.]+)\)/);
+      const bx = b.x + ox + (tr ? +tr[1] : 0), by = b.y + oy + (tr ? +tr[2] : 0), r = b.height / 2;
+      for (let xx = bx + r; xx <= bx + b.width - r + 0.1; xx += r) circ.push([xx, by + r, r]);
+    });
+  });
+  if (lod) svg.classList.add('lod');
+  return (OBST = circ);
+}
+function segDist(px, py, A, B) {
+  const dx = B[0] - A[0], dy = B[1] - A[1], L2 = dx * dx + dy * dy;
+  const t = L2 ? Math.max(0, Math.min(1, ((px - A[0]) * dx + (py - A[1]) * dy) / L2)) : 0;
+  return Math.hypot(px - A[0] - t * dx, py - A[1] - t * dy);
+}
+function alertSpot(id) {
+  const s = ST[id], obs = obstacles().filter(o => Math.abs(o[0] - s.x) < 70 && Math.abs(o[1] - s.y) < 70);
+  const segs = [];
+  LINES.forEach(l => { const P = l.route.pts; for (let i = 0; i < P.length - 1; i++) {
+    if (Math.min(P[i][0], P[i + 1][0]) - 60 < s.x && Math.max(P[i][0], P[i + 1][0]) + 60 > s.x &&
+        Math.min(P[i][1], P[i + 1][1]) - 60 < s.y && Math.max(P[i][1], P[i + 1][1]) + 60 > s.y) segs.push([P[i], P[i + 1]]);
+  } });
+  const R = 11;
+  let best = null;
+  for (let k = 0; k < 8; k++) {
+    const ang = -Math.PI / 4 + k * Math.PI / 4, d = k % 2 ? 17 : 21;   // börja i nordost (tidigare standard)
+    const x = s.x + Math.cos(ang) * d, y = s.y + Math.sin(ang) * d;
+    let pen = k * 0.01;
+    obs.forEach(o => { const ov = R + o[2] - Math.hypot(o[0] - x, o[1] - y); if (ov > 0) pen += ov * 3; });
+    segs.forEach(([A, B]) => { const ov = R + 4 - segDist(x, y, A, B); if (ov > 0) pen += ov; });
+    if (!best || pen < best[0]) best = [pen, x, y];
+  }
+  return [best[1], best[2]];
+}
+
 // Var en störning ska markeras: nämnda stationer, annars få stationer, annars mittenstationen
 function alertAnchors(x) {
   if (x.stretch) {      // en markör mitt på den avstängda sträckan
@@ -1507,7 +1561,8 @@ function renderAlertMarkers() {
     const on = !selSet.size || groupOf(id).some(g => [...ST[g].lines].some(l => selSet.has(l)));
     const grp = el('g', { class: 'amark' + (on ? ' on' : ''), 'data-st': id }, layer);
     el('title', {}, grp).textContent = list.map(x => x.title).join('\n');
-    alertIcon(worst(list), grp, s.x + 13, s.y - 14, list.length);
+    const [mx, my] = alertSpot(id);
+    alertIcon(worst(list), grp, mx, my, list.length);
   }
   for (const lid in lineOnly) {
     const on = !selSet.size || selSet.has(lid);
@@ -1746,6 +1801,7 @@ window.TrackMap = {
   setView: (k, tx, ty) => { Object.assign(view, { k, tx, ty }); applyView(); },
 };
 
+(document.fonts?.ready || Promise.resolve()).then(() => { OBST = null; renderAlertMarkers(); });
 (document.fonts?.ready || Promise.resolve()).then(() => fitText.forEach(([t, w]) => {
   if (t.getComputedTextLength() > w) { t.setAttribute('textLength', w); t.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
 }));
