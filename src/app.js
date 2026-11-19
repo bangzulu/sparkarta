@@ -133,7 +133,7 @@ function label(st) {
 for (const id in ST) {
   const st = ST[id];
   if (!st.lines.size) { console.warn('Station utan linje', id); continue; }
-  if (!PILL_OF[id] && !TERMINI[id]) {
+  if (!PILL_OF[id]) {
     const c = el('circle', { cx: st.x, cy: st.y, r: 3.6, class: 'dot', 'data-st': id }, g('gStations'));
     (stationEls[id] = stationEls[id] || []).push(c);
   }
@@ -185,6 +185,38 @@ for (const id in TERMINI) {
   });
   (stationEls[id] = stationEls[id] || []).push(grp);
   decoEls[id] = grp;
+  shiftTerminus(id, grp);
+}
+/* Ändstation: linjen slutar i en vanlig stationsprick och brickan/namnet flyttas ut
+   längs linjens riktning så att pricken syns. Gäller bara stationer där alla linjer vänder. */
+function shiftTerminus(id, grp) {
+  if (PILL_OF[id]) return;
+  const st = ST[id], dirs = [];
+  for (const lid of st.lines) {
+    const l = LINE[lid], i = l.stops.indexOf(id);
+    if (i !== 0 && i !== l.stops.length - 1) return;           // linjen går förbi – inte ändstation
+    const k = l.route.stopIdx[i], P = l.route.pts[i === 0 ? k + 1 : k - 1], Q = l.route.pts[k];
+    const L = Math.hypot(Q[0] - P[0], Q[1] - P[1]) || 1;
+    dirs.push([(Q[0] - P[0]) / L, (Q[1] - P[1]) / L]);
+  }
+  if (!dirs.length) return;
+  let ux = dirs.reduce((s, d) => s + d[0], 0), uy = dirs.reduce((s, d) => s + d[1], 0);
+  const L = Math.hypot(ux, uy) || 1; ux /= L; uy /= L;
+  // Hur långt bakom pricken ligger närmaste bricka/ikon i linjens riktning?
+  let need = 0;
+  TERMINI[id].forEach(it => {
+    if (it[0] === 't') return;
+    const hw = it[0] === 'b' ? 20 : 13, hh = 13;
+    const proj = (it[1] - st.x) * ux + (it[2] - st.y) * uy;
+    const ext = hw * Math.abs(ux) + hh * Math.abs(uy);
+    // bara föremål som ligger i linjens förlängning (inte bredvid)
+    const side = Math.abs(-(it[1] - st.x) * uy + (it[2] - st.y) * ux);
+    if (side < ext + 8) need = Math.max(need, 14 - (proj - ext));
+  });
+  if (need <= 0) return;
+  const dx = ux * need, dy = uy * need;
+  grp.setAttribute('transform', `translate(${dx.toFixed(1)},${dy.toFixed(1)})`);
+  grp.dataset.dx = dx; grp.dataset.dy = dy;
 }
 
 /* ---------- Mobil ---------- */
@@ -883,9 +915,10 @@ function renderAlertMarkers() {
     const on = !selSet.size || selSet.has(lid);
     document.querySelectorAll(`#gDeco .badge[data-line="${lid}"]`).forEach(b => {
       const m = b.getAttribute('transform').match(/translate\(([-\d.]+),([-\d.]+)\)/);
+      const t = b.closest('.term'), ox = +(t?.dataset.dx || 0), oy = +(t?.dataset.dy || 0);
       const grp = el('g', { class: 'amark' + (on ? ' on' : ''), 'data-line': lid }, layer);
       el('title', {}, grp).textContent = lineOnly[lid].map(x => x.title).join('\n');
-      alertIcon(worst(lineOnly[lid]), grp, +m[1] + 20, +m[2] - 13, lineOnly[lid].length);
+      alertIcon(worst(lineOnly[lid]), grp, +m[1] + ox + 20, +m[2] + oy - 13, lineOnly[lid].length);
     });
   }
 }

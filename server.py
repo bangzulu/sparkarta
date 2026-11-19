@@ -365,6 +365,47 @@ def nice_title(t, text):
     return (first[:110] + '…') if len(first) > 110 else first or t
 
 
+MONTHS = {m: i + 1 for i, m in enumerate(['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli', 'augusti',
+                                            'september', 'oktober', 'november', 'december'])}
+
+
+def mentioned_dates(text, today):
+    """Datum som nämns i texten (\"21 november\", \"21/11\", \"fr.o.m. 3 dec\")."""
+    out = []
+    t = text.lower()
+    # Slutdatum (\"t.o.m. 1/12\", \"åter i drift den 31 december\") säger inget om när störningen börjar
+    END = re.compile(r'(t\.?\s?o\.?\s?m\.?|till och med|fram till|till|tom|senast|åter|i drift|beräknas|upphör)\s*(den\s*)?$')
+    is_end = lambda m: bool(END.search(t[max(0, m.start() - 40):m.start()].strip()))
+    for m in re.finditer(r'\b(\d{1,2})(?:\s*[-–]\s*\d{1,2})?\s+(' + '|'.join(MONTHS) + r'|jan|feb|mar|apr|jun|jul|aug|sep|okt|nov|dec)\.?(?:\s+(\d{4}))?', t):
+        if is_end(m):
+            continue
+        mon = MONTHS.get(m.group(2)) or next(v for k, v in MONTHS.items() if k.startswith(m.group(2)))
+        out.append((int(m.group(1)), mon, int(m.group(3)) if m.group(3) else None))
+    for m in re.finditer(r'(?<![\d/:.])(\d{1,2})/(\d{1,2})(?![\d/])', t):
+        d, mo = int(m.group(1)), int(m.group(2))
+        if 1 <= mo <= 12 and not is_end(m):
+            out.append((d, mo, None))
+    dates = []
+    for d, mo, y in out:
+        try:
+            x = dt.date(y or today.year, mo, d)
+        except ValueError:
+            continue
+        if y is None and (x - today).days < -180:      # \"5 januari\" i december → nästa år
+            x = x.replace(year=today.year + 1)
+        dates.append(x)
+    return dates
+
+
+def is_upcoming(x, today):
+    """Planerad störning som publicerats i förväg: alla nämnda datum ligger efter i dag."""
+    t = (x['title'] + ' ' + x['text']).lower()
+    if re.search(r'\b(just nu|sedan kl|idag|i dag|pågår|tills vidare|tillsvidare|är (avstängd|stängd|inställd|ur funktion|flyttad)|går endast)\b', t):
+        return False
+    dates = mentioned_dates(t, today)
+    return bool(dates) and min(dates) > today
+
+
 def merge_alerts(alerts):
     """Samma störning publiceras ofta en gång per stationsskylt – slå ihop på text."""
     groups = {}
@@ -430,6 +471,12 @@ def merge_alerts(alerts):
                 if A and B and A != B:
                     x['stretch'] = [A, B]
                     break
+    # Planerade störningar som ligger framåt i tiden visas inte
+    today = dt.datetime.now(TZ).date()
+    upcoming = [x for x in out if is_upcoming(x, today)]
+    if upcoming:
+        log.info('Döljer %d kommande störningar: %s', len(upcoming), '; '.join(x['title'][:50] for x in upcoming))
+    out = [x for x in out if not is_upcoming(x, today)]
     # Tredje varvet: samma kategori och samma utpekade stationer, eller nästan samma rubrik → en störning
     def tcore(x):
         return re.sub(r'^\s*(\w+linjen\s*\d+|linje\s*\d+)\s*:\s*', '', x['title'].lower())[:70]

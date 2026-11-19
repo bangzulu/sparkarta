@@ -21,7 +21,7 @@ const STATIONS_RAW = {
   sodp: ['Stockholm Odenplan', 1761, 1028, { d: 'e', t: 'Stockholm\nOdenplan', x: 1756, y: 1056 }],
   cty: ['Stockholm City', 1891, 1093],
   sod: ['Stockholms södra', 1727, 1297, { d: 'e', t: 'Stockholms\nsödra', x: 1745, y: 1305 }],
-  ast: ['Årstaberg', 1615, 1409, 'ne'], alj: ['Älvsjö', 1576, 1448, 'e'],
+  ast: ['Årstaberg', 1615, 1409, { d: 'ne', x: 1605, y: 1388 }], alj: ['Älvsjö', 1576, 1448, 'e'],
   stu: ['Stuvsta', 1516, 1508, 'e'], hud: ['Huddinge', 1480, 1544, 'e'], flb: ['Flemingsberg', 1442, 1581, 'e'],
   tul: ['Tullinge', 1406, 1618, 'e'], tum: ['Tumba', 1368, 1654, 'e'], ron: ['Rönninge', 1332, 1692, 'e'],
   ost: ['Östertälje', 1294, 1728, 'e'], sjh: ['Södertälje hamn', 1260, 1761, { d: 'e', x: 1272, y: 1761 }],
