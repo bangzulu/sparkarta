@@ -193,7 +193,7 @@ def hms(s):
 def build_static():
     zpath = static_zip_path()
     pkl = CACHE / f'{OPERATOR}.parsed.pkl'
-    stamp = (zpath.stat().st_mtime, zpath.stat().st_size, (HERE / 'network.json').stat().st_mtime, 6)
+    stamp = (zpath.stat().st_mtime, zpath.stat().st_size, (HERE / 'network.json').stat().st_mtime, 7)
     if pkl.exists():
         try:
             data = pickle.loads(pkl.read_bytes())
@@ -218,11 +218,23 @@ def build_static():
             lid = line_of(r.get('route_short_name'), rt)
             if lid:
                 route_line[r['route_id']] = lid
-        trip_line = {}
+        trip_line, trip_service = {}, {}
         for r in read_csv(zf, 'trips.txt'):
             lid = route_line.get(r['route_id'])
             if lid:
                 trip_line[r['trip_id']] = lid
+                trip_service[r['trip_id']] = r['service_id']
+        # Trafikkalender: vilka dagar varje service_id gäller
+        calendar = {}
+        if 'calendar.txt' in zf.namelist():
+            for r in read_csv(zf, 'calendar.txt'):
+                calendar[r['service_id']] = {'days': [r[d] == '1' for d in ('monday', 'tuesday', 'wednesday', 'thursday',
+                                                                            'friday', 'saturday', 'sunday')],
+                                             'start': r['start_date'], 'end': r['end_date'], 'add': set(), 'remove': set()}
+        if 'calendar_dates.txt' in zf.namelist():
+            for r in read_csv(zf, 'calendar_dates.txt'):
+                c = calendar.setdefault(r['service_id'], {'days': [False] * 7, 'start': '0', 'end': '0', 'add': set(), 'remove': set()})
+                (c['add'] if r['exception_type'] == '1' else c['remove']).add(r['date'])
         log.info('%d spårlinjer (route_id), %d turer – läser stop_times …', len(route_line), len(trip_line))
         raw = {}
         with zf.open('stop_times.txt') as f:
@@ -256,7 +268,7 @@ def build_static():
         draw = max(fam, key=lambda m: (sum(s['st'] in DRAW_SETS[m] for s in out), m == lid))
         out = [s for s in out if s['st'] in DRAW_SETS[draw]]
         if len(out) >= 2:
-            trips[tid] = {'line': lid, 'draw': draw, 'stops': out}
+            trips[tid] = {'line': lid, 'draw': draw, 'stops': out, 'service': trip_service.get(tid)}
     # Stopp-id (plattform och förälder) → kartans stationer, för störningsmeddelanden
     stopmap = {}
     for T in trips.values():
@@ -266,7 +278,7 @@ def build_static():
                 parent = stops.get(sid, ('', 0, 0, '', ''))[3]
                 if parent:
                     stopmap.setdefault(parent, set()).add(s['st'])
-    data = {'stamp': stamp, 'trips': trips, 'route_line': route_line, 'stopmap': {k: sorted(v) for k, v in stopmap.items()}}
+    data = {'stamp': stamp, 'trips': trips, 'route_line': route_line, 'calendar': calendar, 'stopmap': {k: sorted(v) for k, v in stopmap.items()}}
     pkl.write_bytes(pickle.dumps(data))
     log.info('Klart på %.0f s: %d spårturer', time.time() - t0, len(trips))
     for lid, names in sorted(UNMATCHED.items()):
@@ -309,6 +321,8 @@ def project(stops, lat, lon):
 STATE = {'vehicles': [], 'updated': 0, 'feed_ts': 0, 'error': None, 'stats': {}, 'last_client': 0.0,
          'alerts': [], 'alerts_updated': 0}
 ALERT_SECONDS = float(os.environ.get('ALERT_SECONDS', '300'))
+SCHED_CACHE = {'t': 0, 'body': b''}
+STATIC_REF = {}
 
 
 def tr(ts):
@@ -636,6 +650,15 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if self.path.startswith('/api/schedule'):
+            if time.time() - SCHED_CACHE['t'] > 3600:
+                SCHED_CACHE.update(t=time.time(), body=json.dumps(build_schedule(STATIC_REF['s']), separators=(',', ':')).encode())
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(SCHED_CACHE['body'])))
+            self.end_headers()
+            self.wfile.write(SCHED_CACHE['body'])
+            return
         if self.path.startswith('/api/debug'):
             body = json.dumps({'unmatched': {k: sorted(v) for k, v in UNMATCHED.items()}, 'stats': STATE['stats'],
                                'error': STATE['error'], 'poll': POLL_SECONDS}, ensure_ascii=False, indent=1).encode()
@@ -645,6 +668,51 @@ class Handler(SimpleHTTPRequestHandler):
             self.wfile.write(body)
             return
         super().do_GET()
+
+
+def service_runs(cal, date):
+    """Går service_id den här dagen (date: datetime.date)?"""
+    if not cal:
+        return False
+    ds = date.strftime('%Y%m%d')
+    if ds in cal['remove']:
+        return False
+    if ds in cal['add']:
+        return True
+    return cal['start'] <= ds <= cal['end'] and cal['days'][date.weekday()]
+
+
+def build_schedule(static, now=None):
+    """Kompakt tidtabell för spårturer som går mellan nu-1 h och nu+30 h.
+    Används av kartan när realtiden är gammal och för avgångar som inte startat än.
+    Format: patterns = stationslistor, timings = [ankomst, avgång]-par i sekunder från turens start,
+    trips = [tur-id, linje, ritlinje, mönster, tidsprofil, start (epoch)]."""
+    now = now or time.time()
+    today = dt.datetime.now(TZ).date()
+    patterns, pidx, timings, tidx, out = [], {}, [], {}, []
+    for d in (today - dt.timedelta(days=1), today, today + dt.timedelta(days=1)):
+        base = service_day_epoch(d.strftime('%Y%m%d'))
+        runs = {}
+        for tid, T in static['trips'].items():
+            sv = T.get('service')
+            if sv not in runs:
+                runs[sv] = service_runs(static['calendar'].get(sv), d)
+            if not runs[sv]:
+                continue
+            st = T['stops']
+            start, end = base + st[0]['dep'], base + st[-1]['arr']
+            if end < now - 3600 or start > now + 30 * 3600:
+                continue
+            pk = tuple(s['st'] for s in st)
+            if pk not in pidx:
+                pidx[pk] = len(patterns); patterns.append(list(pk))
+            t0 = st[0]['dep']
+            tk = tuple(v for s in st for v in (s['arr'] - t0, s['dep'] - t0))
+            if tk not in tidx:
+                tidx[tk] = len(timings); timings.append(list(tk))
+            out.append([tid, T['line'], T['draw'], pidx[pk], tidx[tk], round(start)])
+    out.sort(key=lambda r: r[5])
+    return {'generated': round(now), 'patterns': patterns, 'timings': timings, 'trips': out}
 
 
 def snapshot(outfile):
@@ -680,6 +748,10 @@ def snapshot(outfile):
     except Exception as e:
         log.warning('Störningar misslyckades: %s', e)
     p.write_text(json.dumps(out, ensure_ascii=False), encoding='utf-8')
+    # Tidtabell bredvid (api/schedule) – kartan använder den när realtiden är gammal
+    sched = build_schedule(static)
+    (p.parent / 'schedule').write_text(json.dumps(sched, separators=(',', ':')), encoding='utf-8')
+    log.info('Tidtabell: %d turer, %d mönster, %d tidsprofiler', len(sched['trips']), len(sched['patterns']), len(sched['timings']))
 
 
 def main():
@@ -689,6 +761,7 @@ def main():
     if not RT_KEY:
         raise SystemExit('Saknar TRAFIKLAB_RT_KEY (lägg den i .env)')
     static = build_static()
+    STATIC_REF['s'] = static
     STATE['last_client'] = time.time()
     threading.Thread(target=poll_loop, args=(static,), daemon=True).start()
     srv = ThreadingHTTPServer(('0.0.0.0', PORT), Handler)

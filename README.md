@@ -38,6 +38,11 @@ Engångsinställning:
 3. Repot måste vara publikt (eller GitHub Pro) för Pages.
 4. **Actions → Publicera spårkarta → Run workflow** för första körningen.
 
+Mellan körningarna (GitHub kör schemat oregelbundet, ibland med timmar emellan) faller kartan
+tillbaka på tidtabellen i `api/schedule`: när realtiden är äldre än 10 min visas tågen enligt
+tidtabell med senast kända försening per tur, och avgångsvyn markerar det. Avgångar för turer som
+inte startat än (eller saknar position, t.ex. Nockebybanan) visas alltid från tidtabellen.
+
 Kvot: ~9 000 realtidsanrop/månad (Bronze tillåter 30 000), statisk data hämtas var 3:e dygn.
 
 ## Störningar

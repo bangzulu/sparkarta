@@ -514,18 +514,38 @@ function renderStationPanel() {
         break;
       }
     });
+    // Turer i tidtabellen som inte syns som fordon än (ej startade eller utan position)
+    if (SCHED.data) {
+      const shown = new Set([...live.veh.values()].map(v => v.trip));
+      const { patterns, timings, trips } = SCHED.data;
+      for (const [tid, line, draw, p, ti, start] of trips) {
+        if (start > now + 3600) break;
+        if (start < now - 60 || shown.has(tid) || (stFilter && line !== stFilter)) continue;
+        const stops = patterns[p], tm = timings[ti];
+        const i = stops.findIndex(s => grp.includes(s));
+        if (i < 0) continue;
+        const t = start + (i === 0 ? tm[1] : tm[2 * i]);
+        if (t < now - 60 || t > now + 3600) continue;
+        const pv = { id: null, trip: tid, line, draw, stops, to: stops[stops.length - 1], delay: 0 };
+        all.push({ v: pv, t, last: i === stops.length - 1, here: false, dir: rowDir(pv, i), planned: true });
+      }
+    }
     // Riktningsknapp: Alla → Riktning 1 → Riktning 2
     const dest = d => [...new Set(all.filter(r => r.dir === d).map(r => ST[r.last ? r.v.stops[r.v.stops.length - 1] : r.v.to].name))];
     const lbl = stDir ? (dest(stDir).length ? 'Mot ' + dest(stDir).slice(0, 3).join(', ') + (dest(stDir).length > 3 ? ' …' : '') : `Riktning ${stDir}`) : 'Alla riktningar';
     dirBtn = `<button class="dirbtn${stDir ? ' on' : ''}" data-dir="1" title="Växla riktning (alla / riktning 1 / riktning 2)">${DIR_ICON}<span>${lbl}</span></button>`;
     const rows = all.filter(r => !stDir || r.dir === stDir).sort((a, b) => a.t - b.t);
-    const age = now - (live.data.updated || 0), stale = age > 15 * 60;
-    const note = stale ? `<div class="stale">Realtidsdata från kl ${hhmm(live.data.updated)} (${age > 5400 ? Math.round(age / 3600) + ' h' : Math.round(age / 60) + ' min'} sedan) – avgångar kan saknas.</div>` : '';
+    const age = now - (live.data.updated || 0);
+    const ago = age > 5400 ? Math.round(age / 3600) + ' h' : Math.round(age / 60) + ' min';
+    const note = live.fleet === 'sched'
+      ? `<div class="stale">Visar tidtabell${age < 3600 ? ' med senaste förseningar' : ''} – realtid senast kl ${live.data.updated ? hhmm(live.data.updated) + ` (${ago} sedan)` : 'saknas'}.</div>`
+      : age > 15 * 60 ? `<div class="stale">Realtidsdata från kl ${hhmm(live.data.updated)} (${ago} sedan).</div>` : '';
     dep = rows.length ? `<div class="branch">Nästa tåg</div>${note}<ol class="deps">${rows.slice(0, 14).map(r => {
       const l = LINE[r.v.line], m = Math.round((r.t - now) / 60);
       const rel = r.here ? 'här nu' : m <= 0 ? 'nu' : `${m} min`;
       const late = Math.abs(r.v.delay) >= 60 ? ` <span class="${r.v.delay >= 120 ? 'bad' : 'muted'}">${fmtDelay(r.v.delay)}</span>` : '';
-      return `<li data-vid="${r.v.id}"><span class="tm">${hhmm(r.t)}</span>${chip(l)}<span class="nm">${r.last ? 'Slutstation' : ST[r.v.to].name}${late}</span><span class="rel">${rel}</span></li>`;
+      const tag = r.planned || (r.v.sched && !r.v.delayKnown) ? ' <span class="muted">tidtabell</span>' : '';
+      return `<li${r.v.id ? ` data-vid="${r.v.id}"` : ' class="planned"'}><span class="tm">${hhmm(r.t)}</span>${chip(l)}<span class="nm">${r.last ? 'Slutstation' : ST[r.v.to].name}${late}${tag}</span><span class="rel">${rel}</span></li>`;
     }).join('')}</ol>` : (note || `<div class="sub" style="margin-top:14px">Inga tåg${stFilter ? ` på linje ${stFilter}` : ''}${stDir ? ' i den riktningen' : ''} på väg hit just nu.</div>`);
   }
   const scroll = info.scrollTop;
@@ -754,7 +774,7 @@ function setMode(m) {
   document.querySelectorAll('#modes button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
   $('#veh')?.classList.toggle('demo', m === 'demo');
   if (m === 'demo') startDemo();
-  if (m === 'live') { live.updated = 0; pollLive(); }
+  if (m === 'live') { live.updated = 0; pollLive(); if (!SCHED.data) loadSchedule(); }
   if (m !== 'live') clearTimeout(live.timer);
   status();
   kick();
@@ -772,7 +792,7 @@ async function pollLive() {
     if (j.static) MAX_AHEAD = 30;
     live.data = j;
     setAlerts(j.alerts);
-    if (mode === 'live' && j.updated && j.updated !== live.updated) { live.updated = j.updated; applyLive(j.vehicles); }
+    if (mode === 'live' && j.updated !== live.updated) { live.updated = j.updated; refreshFleet(true); }
   } catch (e) {
     live.tried = true;
     live.error = String(e);
@@ -792,6 +812,44 @@ async function pollLive() {
   status();
   if (mode === 'live' && !live.snapshot) live.timer = setTimeout(pollLive, 10000);
 }
+/* ---------- Tidtabell som reserv ----------
+   api/schedule innehåller dygnets spårturer. När realtiden är äldre än FRESH visas tågen
+   enligt tidtabell (med senast kända försening per tur) i stället för att stå still. */
+const SCHED = { data: null };
+const FRESH = 10 * 60;
+async function loadSchedule() {
+  try {
+    const r = await fetch('api/schedule?t=' + Math.floor(Date.now() / 600000), { cache: 'no-store' });
+    if (!r.ok) return;
+    SCHED.data = await r.json();
+    refreshFleet(true);
+  } catch (e) {}
+}
+function scheduledFleet(now) {
+  const d = SCHED.data, out = [];
+  const rt = live.data && live.data.updated && now - live.data.updated < 3600 ? live.data.vehicles : [];
+  const delays = new Map(rt.map(v => [v.trip, v.delay]));
+  for (const [tid, line, draw, p, ti, start] of d.trips) {
+    if (start > now + 60) break;
+    const tm = d.timings[ti], stops = d.patterns[p];
+    if (start + tm[tm.length - 2] + 60 < now) continue;
+    const known = delays.has(tid), delay = known ? delays.get(tid) : 0;
+    out.push({ id: 's' + tid, trip: tid, line, draw, stops, to: stops[stops.length - 1], k: 0, f: 0, delay, delayKnown: known,
+      sched: true, ts: now, arr: stops.map((_, i) => start + tm[2 * i]), dep: stops.map((_, i) => start + tm[2 * i + 1]), plat: [] });
+  }
+  return out;
+}
+function refreshFleet(force) {
+  if (mode !== 'live' || live.snapshot) return;
+  const now = Date.now() / 1000 + live.skew;
+  const fresh = live.data && live.data.updated && now - live.data.updated < FRESH;
+  const want = fresh || !SCHED.data ? 'rt' : 'sched';
+  if (!force && want === live.fleet && want === 'rt') return;
+  live.fleet = want;
+  applyLive(want === 'rt' ? (live.data?.vehicles || []) : scheduledFleet(now));
+}
+setInterval(() => refreshFleet(live.fleet === 'sched'), 15000);
+
 function fmtDelay(s) {
   const m = Math.round(s / 60);
   return Math.abs(m) < 1 ? 'i tid' : (m > 0 ? `+${m} min` : `${m} min`);
@@ -801,7 +859,7 @@ function applyLive(list) {
   list.forEach(v => {
     if (!LINE[v.line] || !LINE[v.draw || v.line] || v.stops.length < 1) return;
     seen.add(v.id);
-    v.title = `${LINE[v.line].name} mot ${ST[v.to]?.name || ''} · ${fmtDelay(v.delay)}`;
+    v.title = `${LINE[v.line].name} mot ${ST[v.to]?.name || ''} · ${v.sched && !v.delayKnown ? 'enligt tidtabell' : fmtDelay(v.delay)}`;
     const p = livePos(v, Date.now() / 1000 + live.skew);
     if (!p) return;
     v.pos = p;
@@ -815,8 +873,9 @@ function applyLive(list) {
 function livePos(v, now) {
   const n = v.stops.length, k0 = Math.min(v.k || 0, Math.max(0, n - 2));
   if (n === 1) return { from: v.stops[0], to: null, progress: 0, seg: 0, at: 0 };
-  const t = Math.min(now, v.ts + (live.snapshot || live.static ? 1800 : FREEZE_AFTER)) - v.delay;
-  for (let j = k0; j < n - 1 && j <= k0 + MAX_AHEAD; j++) {
+  const t = (v.sched ? now : Math.min(now, v.ts + (live.snapshot || live.static ? 1800 : FREEZE_AFTER))) - v.delay;
+  const ahead = v.sched ? 1e9 : MAX_AHEAD;
+  for (let j = k0; j < n - 1 && j <= k0 + ahead; j++) {
     if (t < v.dep[j]) {
       if (j === k0 && v.f >= 0.02) return { from: v.stops[j], to: v.stops[j + 1], progress: v.f, seg: j, at: -1 };
       return { from: v.stops[j], to: v.stops[j + 1], progress: 0, seg: j, at: j };
@@ -827,7 +886,7 @@ function livePos(v, now) {
       return { from: v.stops[j], to: v.stops[j + 1], progress: p, seg: j, at: p >= 0.999 ? j + 1 : -1 };
     }
   }
-  const j = Math.min(n - 1, k0 + MAX_AHEAD + 1);
+  const j = Math.min(n - 1, k0 + ahead + 1);
   return { from: v.stops[j - 1], to: v.stops[j], progress: 1, seg: j - 1, at: j };
 }
 function stepLive() {
@@ -1042,7 +1101,9 @@ function renderVehPanel(first) {
   info.style.setProperty('--c', colorOf(l));
   info.innerHTML = `${GRAB}<div class="hd"><button class="close" aria-label="Stäng">×</button>
     <h2>${chip(l)}<span>mot ${ST[v.to].name}</span></h2>
-    <div class="sub">${l.name} · <b class="${v.delay >= 120 ? 'bad' : ''}">${delayTxt}</b> · position ${upd}</div>
+    <div class="sub">${l.name} · ${v.sched
+      ? `<b>Enligt tidtabell</b>${v.delayKnown ? ` + senaste försening (${fmtDelay(v.delay)})` : ''}`
+      : `<b class="${v.delay >= 120 ? 'bad' : ''}">${delayTxt}</b> · position ${upd}`}</div>
     </div>
     <ol class="trip">${rows.join('')}</ol>
     <div class="foot">Tider = tidtabell + aktuell försening (beräknat). Fordon ${v.id}</div>`;
@@ -1069,6 +1130,7 @@ function status() {
   else el.textContent = 'Fordon dolda';
 }
 setInterval(() => mode === 'live' && status(), 5000);
+setInterval(() => mode === 'live' && loadSchedule(), 3 * 3600 * 1000);
 $('#modes')?.addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
