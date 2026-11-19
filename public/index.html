@@ -470,6 +470,8 @@ const PILLS = [
 
 /* Ändhållplatser och större stationer: ikoner, linjebrickor, versala namn.
    ['i', x, y, typ] ikon (metro/train/plane/info) · ['b', x, y, linje] bricka · ['t', x, y, text, ankare] */
+/* Manuell förskjutning av ändstationens brickor/namn (ersätter den automatiska) */
+const TERM_SHIFT = { bal: [-22, -7], mst: [-25, -7], gne: [-22, 18] };
 const TERMINI = {
   bal: [['i', 644, 382, 'train'], ['b', 686, 382, '43'], ['t', 718, 382, 'BÅLSTA']],
   hjs: [['i', 975, 515, 'metro'], ['b', 1014, 515, '10'], ['t', 1046, 515, 'HJULSTA']],
@@ -726,8 +728,8 @@ function shiftTerminus(id, grp) {
     const side = Math.abs(-(it[1] - st.x) * uy + (it[2] - st.y) * ux);
     if (side < ext + 8) need = Math.max(need, 14 - (proj - ext));
   });
-  if (need <= 0) return;
-  const dx = ux * need, dy = uy * need;
+  if (need <= 0 && !TERM_SHIFT[id]) return;
+  const [dx, dy] = TERM_SHIFT[id] || [ux * need, uy * need];
   grp.setAttribute('transform', `translate(${dx.toFixed(1)},${dy.toFixed(1)})`);
   grp.dataset.dx = dx; grp.dataset.dy = dy;
 }

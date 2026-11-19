@@ -214,8 +214,8 @@ function shiftTerminus(id, grp) {
     const side = Math.abs(-(it[1] - st.x) * uy + (it[2] - st.y) * ux);
     if (side < ext + 8) need = Math.max(need, 14 - (proj - ext));
   });
-  if (need <= 0) return;
-  const dx = ux * need, dy = uy * need;
+  if (need <= 0 && !TERM_SHIFT[id]) return;
+  const [dx, dy] = TERM_SHIFT[id] || [ux * need, uy * need];
   grp.setAttribute('transform', `translate(${dx.toFixed(1)},${dy.toFixed(1)})`);
   grp.dataset.dx = dx; grp.dataset.dy = dy;
 }
