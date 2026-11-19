@@ -309,6 +309,7 @@ function clearSel() {
   document.querySelectorAll('.sel').forEach(e => e.classList.remove('sel'));
   setFocus(null);
   $('#info').classList.remove('show');
+  renderAlertMarkers();
 }
 function setFocus(id) {
   document.querySelectorAll('.focus').forEach(e => e.classList.remove('focus'));
@@ -331,6 +332,7 @@ function selectLines(ids, { zoom = true, info = true } = {}) {
   });
   vehEls.forEach((el, vid) => el.classList.toggle('sel', selSet.has(vehicles.get(vid).line)));
   if (info && sel) showLineInfo(LINE[sel]);
+  renderAlertMarkers();
   if (zoom) fitStations([...new Set(ids.flatMap(id => LINE[id].stops))]);
 }
 const selectLine = (id, zoom = true) => selectLines([id], { zoom });
@@ -349,6 +351,7 @@ function showLineInfo(l, at) {
     <h2>${chip(l)}<span>${l.name.replace(/\s\d+$/, '')}</span></h2>
     <div class="sub">${l.desc} · ${l.stops.length} stationer · <span class="vcount"></span></div></div>
     ${others.length ? `<div class="also"><span>Fler linjer vid ${ST[at].name}:</span><div class="chips">${others.map(o => chip(o, at)).join('')}</div></div>` : ''}
+    ${alertList(alertsForLine(l.id))}
     <div class="lv-head"><span>▲ mot ${first}</span><span>▼ mot ${last}</span></div>
     <div class="lv" data-line="${l.id}">
       <div class="lv-track"></div>
@@ -480,7 +483,7 @@ function renderStationPanel() {
   info.style.removeProperty('--c');
   info.innerHTML = `${GRAB}<div class="hd"><button class="close" aria-label="Stäng">×</button><h2><span>${names}</span></h2>
     <div class="sub">${lines.length > 1 ? (stFilter ? `Visar linje ${stFilter} – klicka igen för alla` : `${lines.length} linjer – välj en för att filtrera`) : '1 linje'}</div>
-    <div class="chips filter">${lines.map(filterChip).join('')}</div></div>${dep}`;
+    <div class="chips filter">${lines.map(filterChip).join('')}</div></div>${alertList(alertsForStation(id))}${dep}`;
   info.classList.add('show');
   info.scrollTop = scroll;
 }
@@ -502,6 +505,8 @@ svg.addEventListener('click', e => {
   if (t.dataset.line) return t.closest('#gLegend') ? (sel === t.dataset.line ? clearSel() : selectLine(t.dataset.line)) : selectLine(t.dataset.line, false);
 });
 $('#info').addEventListener('click', e => {
+  const al = e.target.closest('.alert');
+  if (al) { al.classList.toggle('open'); openAlerts[al.dataset.aid] = al.classList.contains('open'); return; }
   const t = e.target.closest('[data-st],[data-line],[data-zoom],[data-vid],[data-filter],.close,.follow');
   if (!t) return;
   if (t.classList.contains('close')) return clearSel();
@@ -716,6 +721,7 @@ async function pollLive() {
     live.skew = j.static ? 0 : j.now - Date.now() / 1000;
     if (j.static) MAX_AHEAD = 30;
     live.data = j;
+    setAlerts(j.alerts);
     if (mode === 'live' && j.updated && j.updated !== live.updated) { live.updated = j.updated; applyLive(j.vehicles); }
   } catch (e) {
     live.tried = true;
@@ -726,6 +732,7 @@ async function pollLive() {
       live.snapshot = true; live.ok = true; MAX_AHEAD = 30;
       live.skew = j.now - Date.now() / 1000;
       live.data = j; live.updated = j.updated;
+      setAlerts(j.alerts);
       applyLive(j.vehicles);
       status();
       return;
@@ -778,6 +785,145 @@ function stepLive() {
   live.veh.forEach(v => { const p = livePos(v, now); if (p) { v.pos = p; upsertVehicle({ id: v.id, line: v.line, draw: v.draw, title: v.title, ...p }, false); } });
   followStep();
 }
+/* ---------- Störningar (GTFS-RT ServiceAlerts via servern) ----------
+   Kategorier kan slås av/på med knapparna uppe till vänster. Meddelanden knutna till
+   stationer visas som markörer vid stationen; meddelanden för hela linjer vid linjebrickorna. */
+const ACATS = {
+  traffic: { name: 'Trafikstörningar', icon: 'warn', color: '#ff5a4f' },
+  access: { name: 'Hiss & entréer', icon: 'lift', color: '#f5a623' },
+  info: { name: 'Övrig info', icon: 'info', color: '#9aa4ad' },
+};
+let ALERTS = [], alertsKey = '';
+const openAlerts = {};
+const aOn = (() => { try { return new Set(JSON.parse(localStorage.getItem('sparkarta.alerts')) || ['traffic']); } catch (e) { return new Set(['traffic']); } })();
+const saveAOn = () => { try { localStorage.setItem('sparkarta.alerts', JSON.stringify([...aOn])); } catch (e) {} };
+const enabledAlerts = () => ALERTS.filter(x => aOn.has(x.cat));
+const alertsForStation = id => { const g = groupOf(id); return enabledAlerts().filter(x => x.stations.some(s => g.includes(s)) || (x.at || []).some(s => g.includes(s))); };
+const alertsForLine = lid => { const st = new Set(LINE[lid].stops); return enabledAlerts().filter(x => x.lines.includes(lid) || x.stations.some(s => st.has(s))); };
+function setAlerts(list) {
+  list = list || [];
+  const key = list.map(x => x.id + x.cat).join('|');
+  if (key === alertsKey) return;
+  ALERTS = list; alertsKey = key;
+  renderAlertToggles(); renderAlertMarkers();
+  if (stPanel && !selVeh) renderStationPanel();
+}
+function alertIcon(cat, parent, x, y, n) {
+  const c = ACATS[cat], grp = el('g', { transform: `translate(${x},${y})`, class: 'amark-i' }, parent);
+  if (c.icon === 'warn') {
+    el('path', { d: 'M0,-11 L11,8 L-11,8Z', fill: c.color, stroke: '#2b2f33', 'stroke-width': 1.5, 'stroke-linejoin': 'round' }, grp);
+    el('path', { d: 'M-1.4,-4 H1.4 L0.9,3 H-0.9Z M0,4.4 a1.5,1.5 0 1 0 0.01,0', fill: '#fff' }, grp);
+  } else if (c.icon === 'lift') {
+    el('rect', { x: -9, y: -9, width: 18, height: 18, rx: 3, fill: c.color, stroke: '#2b2f33', 'stroke-width': 1.5 }, grp);
+    el('path', { d: 'M-4.5,-1 L-2,-5 L0.5,-1Z M-4.5,1 L-2,5 L0.5,1Z M3.5,-5 V5', fill: '#2b2f33', stroke: '#2b2f33', 'stroke-width': 1.2 }, grp);
+  } else {
+    el('circle', { r: 9, fill: c.color, stroke: '#2b2f33', 'stroke-width': 1.5 }, grp);
+    el('rect', { x: -1.3, y: -2, width: 2.6, height: 7, fill: '#2b2f33' }, grp);
+    el('circle', { cy: -5, r: 1.6, fill: '#2b2f33' }, grp);
+  }
+  if (n > 1) {
+    el('circle', { cx: 10, cy: -9, r: 6.5, fill: '#fff' }, grp);
+    const t = el('text', { x: 10, y: -5.6, class: 'acount' }, grp); t.textContent = n;
+  }
+}
+// Var en störning ska markeras: nämnda stationer, annars få stationer, annars mittenstationen
+function alertAnchors(x) {
+  if (x.stretch) {      // en markör mitt på den avstängda sträckan
+    const [A, B] = x.stretch;
+    const l = (x.lines.map(i => LINE[i]).filter(Boolean).concat(LINES)).find(l => l.stops.includes(A) && l.stops.includes(B));
+    if (l) { const i = l.stops.indexOf(A), j = l.stops.indexOf(B); return [l.stops[Math.round((i + j) / 2)]]; }
+  }
+  if (x.at && x.at.length) return x.at.filter(s => ST[s]);
+  if (x.stations.length <= 3) return x.stations;
+  const line = LINES.find(l => x.stations.every(s => l.stops.includes(s))) || LINES.find(l => x.stations.some(s => l.stops.includes(s)));
+  const ordered = line ? line.stops.filter(s => x.stations.includes(s)) : x.stations;
+  return [ordered[Math.floor(ordered.length / 2)]];
+}
+// Linjen (och dess sträcka mellan två stationer) för en avstängd/ersatt delsträcka
+function stretchPath(x) {
+  const [A, B] = x.stretch;
+  const l = (x.lines.map(i => LINE[i]).filter(Boolean).concat(LINES)).find(l => l.stops.includes(A) && l.stops.includes(B));
+  if (!l) return null;
+  let i = l.route.stopIdx[l.stops.indexOf(A)], j = l.route.stopIdx[l.stops.indexOf(B)];
+  if (i > j) [i, j] = [j, i];
+  return { line: l.id, pts: l.route.pts.slice(i, j + 1) };
+}
+function renderAlertMarkers() {
+  const layer = $('#gAlerts');
+  if (!layer) return;
+  layer.innerHTML = '';
+  const order = ['traffic', 'access', 'info'];
+  const byStation = {}, lineOnly = {};
+  enabledAlerts().forEach(x => {
+    if (x.stretch) {
+      const sp = stretchPath(x);
+      if (sp) {
+        const on = !selSet.size || selSet.has(sp.line) || x.lines.some(l => selSet.has(l));
+        const d = 'M' + sp.pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('L');
+        const g = el('g', { class: 'astretch' + (on ? ' on' : ''), 'data-line': sp.line }, layer);
+        el('path', { d, class: 'as-bg' }, g);
+        el('path', { d, class: 'as-fg' }, g);
+        el('title', {}, g).textContent = x.title;
+      }
+    }
+    const anchors = alertAnchors(x);
+    const done = new Set();
+    anchors.forEach(s => { const k = groupOf(s)[0]; if (done.has(k)) return; done.add(k); (byStation[k] = byStation[k] || []).push(x); });
+    if (!anchors.length) x.lines.forEach(l => (lineOnly[l] = lineOnly[l] || []).push(x));
+  });
+  const worst = list => order.find(c => list.some(x => x.cat === c));
+  for (const id in byStation) {
+    const s = ST[id], list = byStation[id];
+    const on = !selSet.size || groupOf(id).some(g => [...ST[g].lines].some(l => selSet.has(l)));
+    const grp = el('g', { class: 'amark' + (on ? ' on' : ''), 'data-st': id }, layer);
+    el('title', {}, grp).textContent = list.map(x => x.title).join('\n');
+    alertIcon(worst(list), grp, s.x + 13, s.y - 14, list.length);
+  }
+  for (const lid in lineOnly) {
+    const on = !selSet.size || selSet.has(lid);
+    document.querySelectorAll(`#gDeco .badge[data-line="${lid}"]`).forEach(b => {
+      const m = b.getAttribute('transform').match(/translate\(([-\d.]+),([-\d.]+)\)/);
+      const grp = el('g', { class: 'amark' + (on ? ' on' : ''), 'data-line': lid }, layer);
+      el('title', {}, grp).textContent = lineOnly[lid].map(x => x.title).join('\n');
+      alertIcon(worst(lineOnly[lid]), grp, +m[1] + 20, +m[2] - 13, lineOnly[lid].length);
+    });
+  }
+}
+function renderAlertToggles() {
+  const box = $('#alertToggles');
+  if (!box) return;
+  box.innerHTML = Object.entries(ACATS).map(([k, c]) => {
+    const n = ALERTS.filter(x => x.cat === k).length;
+    return `<button data-acat="${k}" aria-pressed="${aOn.has(k)}" title="${c.name}"><svg viewBox="-12 -12 24 24" width="18" height="18"></svg><span>${c.name}</span><b>${n}</b></button>`;
+  }).join('');
+  box.querySelectorAll('button').forEach(b => alertIcon(b.dataset.acat, b.querySelector('svg'), 0, 0, 0));
+  box.classList.toggle('empty', !ALERTS.length);
+}
+$('#alertToggles')?.addEventListener('click', e => {
+  const b = e.target.closest('[data-acat]');
+  if (!b) return;
+  const k = b.dataset.acat;
+  aOn.has(k) ? aOn.delete(k) : aOn.add(k);
+  saveAOn(); renderAlertToggles(); renderAlertMarkers();
+  if (stPanel && !selVeh) renderStationPanel();
+  else if (sel && !selVeh && $('#info .lv')) showLineInfo(LINE[sel], focus);
+});
+const fmtDate = t => new Date(t * 1000).toLocaleString('sv-SE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+function alertList(list) {
+  if (!list.length) return '';
+  const order = { traffic: 0, access: 1, info: 2 };
+  list = [...list].sort((a, b) => order[a.cat] - order[b.cat]);
+  return `<div class="branch">Störningar och meddelanden</div><ul class="alerts">${list.map(x => {
+    const per = x.end ? `<div class="per">Till ${fmtDate(x.end)}</div>` : '';
+    const lines = x.lines.length ? `<div class="al-lines">${x.lines.map(l => LINE[l] ? chip(LINE[l]) : '').join('')}</div>` : '';
+    return `<li class="alert ${x.cat}${openAlerts[x.id] ? ' open' : ''}" data-aid="${x.id}"><svg viewBox="-12 -12 24 24" width="18" height="18" data-cat="${x.cat}"></svg>
+      <div><div class="at">${x.title || ACATS[x.cat].name}</div><div class="ad">${(x.text || '').replace(/</g, '&lt;')}${per}${lines}</div></div></li>`;
+  }).join('')}</ul>`;
+}
+// Rita ikonerna i panelens listor efter varje rendering
+new MutationObserver(() => document.querySelectorAll('#info svg[data-cat]:empty').forEach(s => alertIcon(s.dataset.cat, s, 0, 0, 0)))
+  .observe($('#info'), { childList: true, subtree: true });
+
 /* ---------- Valt fordon: tur med ankomsttider ---------- */
 const hhmm = t => new Date(t * 1000).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
 function zoomToStation(id, minK = 1.6) {

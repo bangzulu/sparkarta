@@ -40,6 +40,13 @@ Engångsinställning:
 
 Kvot: ~9 000 realtidsanrop/månad (Bronze tillåter 30 000), statisk data hämtas var 3:e dygn.
 
+## Störningar
+
+Servern hämtar även GTFS-RT **ServiceAlerts** (samma nyckel) var 5:e minut. Meddelanden för spårtrafiken
+kopplas till kartans stationer och linjer, dubbletter (samma störning per stationsskylt) slås ihop och
+delas in i *Trafikstörningar*, *Hiss & entréer* och *Övrig info* – av/på med knapparna uppe till vänster.
+Avstängda/ersatta sträckor ("mellan A och B") ritas som streckad röd linje.
+
 ## Kvot
 
 | Nivå   | Realtid/månad | Rimligt `POLL_SECONDS` |

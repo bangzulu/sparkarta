@@ -107,6 +107,35 @@
   #info .chips.filter .chip.dim{opacity:.35}
   #info .chips.filter .chip.dim:hover{opacity:.7}
   #info .chips.filter .chip.on{box-shadow:0 0 0 2px var(--panel),0 0 0 4px #fff}
+  /* Störningar */
+  .amark{cursor:pointer;transition:opacity .2s}
+  .astretch{cursor:pointer;transition:opacity .2s}
+  .astretch path{fill:none;stroke-linecap:butt;stroke-linejoin:round}
+  .astretch .as-bg{stroke:#2b2f33;stroke-width:7}
+  .astretch .as-fg{stroke:#ff5a4f;stroke-width:4;stroke-dasharray:9 7}
+  #map.has-sel .astretch:not(.on){opacity:.15}
+  #map.has-sel .amark:not(.on){opacity:.15}
+  .acount{font-size:9.5px;font-weight:700;fill:#2b2f33;text-anchor:middle}
+  #alertToggles{position:fixed;left:12px;top:12px;display:flex;flex-direction:column;gap:2px;padding:6px}
+  #alertToggles.empty{display:none}
+  #alertToggles button{display:flex;align-items:center;gap:8px;border:0;background:none;color:var(--ink);font:inherit;font-size:15px;
+    padding:6px 8px;border-radius:7px;cursor:pointer;text-align:left}
+  #alertToggles button:hover{background:#3a4046}
+  #alertToggles button[aria-pressed="false"]{opacity:.45}
+  #alertToggles button[aria-pressed="false"] svg{filter:grayscale(1)}
+  #alertToggles b{margin-left:auto;padding-left:10px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums}
+  #info ul.alerts{list-style:none;margin:0 0 6px;padding:0}
+  #info .alert{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line);cursor:pointer}
+  #info .alert svg{flex:none;margin-top:1px}
+  #info li.alert::before{display:none}
+  #info li.alert:hover{color:inherit}
+  #info li.alert:hover .at{text-decoration:underline}
+  #info .alert .at{font-weight:600;line-height:1.25}
+  #info .alert .ad{display:none;margin-top:5px;font-size:14px;color:#c4c8cc;line-height:1.4;white-space:pre-line}
+  #info .alert.open .ad{display:block}
+  #info .alert .per{margin-top:6px;color:var(--muted);font-size:13px}
+  #info .alert .al-lines{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+  #info .alert .al-lines .chip{min-width:30px;height:20px;font-size:13px;padding:0 5px;pointer-events:none}
   #info .branch{margin:16px 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
   #info ol.deps{border-left:0;padding:0}
   #info ol.deps li{display:flex;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
@@ -125,6 +154,10 @@
   #zoom button{width:42px;height:42px;border:0;background:var(--panel);color:#fff;font-size:22px;cursor:pointer}
   #zoom button+button{border-left:1px solid var(--line)}
   @media (max-width:760px){
+    #alertToggles{flex-direction:row;left:8px;right:auto;top:calc(8px + env(safe-area-inset-top));padding:4px;gap:0}
+    #alertToggles span{display:none}
+    #alertToggles b{padding-left:4px}
+    #alertToggles button{padding:6px 7px;gap:4px}
     #info{left:0;right:0;bottom:0;top:auto;width:auto;height:var(--sheet,45vh);max-height:none;border-radius:16px 16px 0 0;
       border-left:0;border-right:0;border-bottom:0;padding:0 16px calc(14px + env(safe-area-inset-bottom));
       transition:height .2s ease;touch-action:pan-y;overscroll-behavior:contain}
@@ -142,10 +175,11 @@
 <svg id="map" xmlns="http://www.w3.org/2000/svg" aria-label="Interaktiv spårtrafikkarta">
   <g id="viewport">
     <g id="gLegend"></g><g id="gRoutes"></g><g id="gHit"></g><g id="gPills"></g><g id="gStations"></g>
-    <g id="gLabels"></g><g id="gDeco"></g>
+    <g id="gLabels"></g><g id="gDeco"></g><g id="gAlerts"></g>
   </g>
   <g id="gVehicles"></g>
 </svg>
+<div id="alertToggles" class="card empty"></div>
 <div id="info" class="card"></div>
 <div id="ctrl">
   <div id="zoom" class="card">

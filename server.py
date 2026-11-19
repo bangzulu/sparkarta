@@ -193,7 +193,7 @@ def hms(s):
 def build_static():
     zpath = static_zip_path()
     pkl = CACHE / f'{OPERATOR}.parsed.pkl'
-    stamp = (zpath.stat().st_mtime, zpath.stat().st_size, (HERE / 'network.json').stat().st_mtime, 5)
+    stamp = (zpath.stat().st_mtime, zpath.stat().st_size, (HERE / 'network.json').stat().st_mtime, 6)
     if pkl.exists():
         try:
             data = pickle.loads(pkl.read_bytes())
@@ -257,7 +257,16 @@ def build_static():
         out = [s for s in out if s['st'] in DRAW_SETS[draw]]
         if len(out) >= 2:
             trips[tid] = {'line': lid, 'draw': draw, 'stops': out}
-    data = {'stamp': stamp, 'trips': trips}
+    # Stopp-id (plattform och förälder) → kartans stationer, för störningsmeddelanden
+    stopmap = {}
+    for T in trips.values():
+        for s in T['stops']:
+            for sid in s['ids']:
+                stopmap.setdefault(sid, set()).add(s['st'])
+                parent = stops.get(sid, ('', 0, 0, '', ''))[3]
+                if parent:
+                    stopmap.setdefault(parent, set()).add(s['st'])
+    data = {'stamp': stamp, 'trips': trips, 'route_line': route_line, 'stopmap': {k: sorted(v) for k, v in stopmap.items()}}
     pkl.write_bytes(pickle.dumps(data))
     log.info('Klart på %.0f s: %d spårturer', time.time() - t0, len(trips))
     for lid, names in sorted(UNMATCHED.items()):
@@ -297,7 +306,157 @@ def project(stops, lat, lon):
     return best
 
 
-STATE = {'vehicles': [], 'updated': 0, 'feed_ts': 0, 'error': None, 'stats': {}, 'last_client': 0.0}
+STATE = {'vehicles': [], 'updated': 0, 'feed_ts': 0, 'error': None, 'stats': {}, 'last_client': 0.0,
+         'alerts': [], 'alerts_updated': 0}
+ALERT_SECONDS = float(os.environ.get('ALERT_SECONDS', '300'))
+
+
+def tr(ts):
+    """Svensk text ur en TranslatedString (annars första)."""
+    for t in ts.translation:
+        if t.language in ('sv', 'se', ''):
+            return t.text.strip()
+    return ts.translation[0].text.strip() if ts.translation else ''
+
+
+def categorize(alert, text):
+    t = text.lower()
+    if re.search(r'\bhiss|rulltrapp|\bramp|entr[eé]|uppgång|utgång|trappa', t):
+        return 'access'
+    if alert.effect in (1, 2, 3, 4, 6) or re.search(
+            r'ersätt|inställ|stopp i trafiken|ingen trafik|förseni|försen|enkelspår|signalfel|växelfel|'
+            r'glesare|kortare tåg|vänd|olycka|obehöriga|reducerad|begränsad trafik|trafikstörning|avstängd sträcka', t):
+        return 'traffic'
+    return 'info'
+
+
+def process_alerts(feed, static):
+    rl, sm = static['route_line'], static['stopmap']
+    now = time.time()
+    out = []
+    for ent in feed.entity:
+        if not ent.HasField('alert'):
+            continue
+        a = ent.alert
+        if a.active_period and not any((p.start or 0) <= now <= (p.end or 9e12) for p in a.active_period):
+            continue
+        lines = sorted({rl[i.route_id] for i in a.informed_entity if i.route_id in rl}, key=int)
+        stations = sorted({st for i in a.informed_entity if i.stop_id in sm for st in sm[i.stop_id]})
+        if not lines and not stations:
+            continue
+        title, text = tr(a.header_text), tr(a.description_text)
+        per = [p for p in a.active_period if (p.start or 0) <= now <= (p.end or 9e12)]
+        out.append({
+            'id': ent.id, 'cat': categorize(a, title + ' ' + text), 'title': title, 'text': text,
+            'lines': lines, 'stations': stations, 'routed': bool(lines),
+            'start': per[0].start if per and per[0].start else None, 'end': per[0].end if per and per[0].end else None,
+        })
+    return merge_alerts(out)
+
+
+CODE_TITLE = re.compile(r'^(stn\.?\s*medd|[A-ZÅÄÖ]{2,4}(\s|$|\s*[-–])|.*\bkris\b|.*\bmedd\.?$|alla\b|övriga\b)', re.I)
+
+
+def nice_title(t, text):
+    """SL:s skyltmeddelanden har interna rubriker (\"BFP Kris\", \"Stn.medd. ALV-SEP\") – använd då textens första mening."""
+    if t and len(t) >= 12 and not CODE_TITLE.match(t):
+        return t
+    first = re.split(r'(?<=[.!?])\s|\n', text.strip(), maxsplit=1)[0] if text else t
+    return (first[:110] + '…') if len(first) > 110 else first or t
+
+
+def merge_alerts(alerts):
+    """Samma störning publiceras ofta en gång per stationsskylt – slå ihop på text."""
+    groups = {}
+    for x in alerts:
+        key = re.sub(r'\s+', ' ', (x['text'] or x['title']).lower()).strip()[:160]
+        groups.setdefault(key, []).append(x)
+    merged = []
+    for g in groups.values():
+        g.sort(key=lambda x: (not x['routed'], bool(CODE_TITLE.match(x['title'] or '')), -len(x['title'] or '')))
+        best = dict(g[0])
+        best['title'] = nice_title(best['title'], best['text'])
+        best['lines'] = sorted({l for x in g for l in x['lines']}, key=int)
+        best['stations'] = sorted({s for x in g for s in x['stations']})
+        best['cat'] = min((x['cat'] for x in g), key=['traffic', 'access', 'info'].index)
+        best['ends'] = [x['end'] for x in g if x['end']]
+        best['end'] = max(best['ends']) if best['ends'] else None
+        del best['ends'], best['routed']
+        merged.append(best)
+    # Andra varvet: nästan likadana texter (olika skyltvarianter av samma störning)
+    def core(x):
+        t = (x['text'] or x['title']).lower()
+        t = re.sub(r'^\s*(\w+linjen\s*\d+|linje\s*\d+)\s*:\s*', '', t)
+        return re.sub(r'\s+', ' ', t)[:150]
+    out = []
+    for x in sorted(merged, key=lambda x: (not x['lines'], -len(x['stations']))):
+        for y in out:
+            if x['cat'] == y['cat'] or {x['cat'], y['cat']} <= {'traffic', 'info'}:
+                if difflib.SequenceMatcher(None, core(x), core(y)).ratio() >= 0.72:
+                    y['lines'] = sorted(set(y['lines']) | set(x['lines']), key=int)
+                    y['stations'] = sorted(set(y['stations']) | set(x['stations']))
+                    y['end'] = max(filter(None, [x['end'], y['end']]), default=None)
+                    y['cat'] = min(x['cat'], y['cat'], key=['traffic', 'access', 'info'].index)
+                    break
+        else:
+            out.append(x)
+    # Stationer som nämns i texten (t.ex. \"mellan Käppala och Gåshaga brygga\") – där sätts markören
+    for x in out:
+        cand = set(x['stations']) | {s for l in x['lines'] for s in NETWORK['lines'][l]['stops']}
+        txt = ' ' + (x['title'] + ' ' + x['text']).lower() + ' '
+        hits = []
+        for sid in cand:
+            nm = NETWORK['stations'][sid].lower()
+            for m in re.finditer(re.escape(nm), txt):
+                i = m.start()
+                if not txt[i - 1].isalnum() and not txt[i + len(nm)].isalnum():
+                    hits.append((i, sid))
+                    break
+        names = {}
+        for i, sid in sorted(hits):        # samma namn på flera linjer (t.ex. Universitetet) – behåll en per namn
+            names.setdefault(NETWORK['stations'][sid].lower(), sid)
+        x['at'] = list(names.values())[:3]
+        # Avstängd/ersatt sträcka: \"mellan A och B\", \"sträckan A - B\", \"Inställd trafik A - B\"
+        x['stretch'] = None
+        if x['cat'] == 'traffic':
+            byname = {NETWORK['stations'][sid].lower(): sid for sid in cand}
+            pat = r'(?:mellan|sträckan|trafik)\s+(.+?)\s+(?:och|-|–)\s+(.+?)(?=[\s.,;:]|$)'
+            for m in re.finditer(pat, txt):
+                a_, b_ = m.group(1).strip(), m.group(2).strip()
+                # namnet kan vara flera ord – ta längsta kända stationsnamn i början/slutet
+                A = next((byname[k] for k in sorted(byname, key=len, reverse=True) if a_.endswith(k)), None)
+                B = next((byname[k] for k in sorted(byname, key=len, reverse=True)
+                          if txt[m.start(2):].startswith(k)), None)
+                if A and B and A != B:
+                    x['stretch'] = [A, B]
+                    break
+    # Tredje varvet: samma kategori och samma utpekade stationer, eller nästan samma rubrik → en störning
+    def tcore(x):
+        return re.sub(r'^\s*(\w+linjen\s*\d+|linje\s*\d+)\s*:\s*', '', x['title'].lower())[:70]
+    final = []
+    for x in out:
+        for y in final:
+            same_at = x['at'] and set(x['at']) == set(y['at']) and x['cat'] == y['cat']
+            if same_at or difflib.SequenceMatcher(None, tcore(x), tcore(y)).ratio() >= 0.8:
+                if len(x['lines']) > len(y['lines']) or (x['lines'] and not CODE_TITLE.match(x['title']) and not y['lines']):
+                    y['title'], y['text'] = x['title'], x['text']
+                y['lines'] = sorted(set(y['lines']) | set(x['lines']), key=int)
+                y['stations'] = sorted(set(y['stations']) | set(x['stations']))
+                y['at'] = y['at'] or x['at']
+                y['stretch'] = y.get('stretch') or x.get('stretch')
+                y['end'] = max(filter(None, [x['end'], y['end']]), default=None)
+                break
+        else:
+            final.append(x)
+    return final
+
+
+def fetch_alerts(static):
+    r = session.get(f'{BASE_URL}/gtfs-rt/{OPERATOR}/ServiceAlerts.pb?key={RT_KEY}', timeout=60)
+    r.raise_for_status()
+    feed = gtfs_realtime_pb2.FeedMessage()
+    feed.ParseFromString(r.content)
+    return process_alerts(feed, static)
 lock = threading.Lock()
 
 
@@ -372,6 +531,15 @@ def poll_loop(static):
             time.sleep(2)
             continue
         t0 = time.time()
+        if t0 - STATE['alerts_updated'] > ALERT_SECONDS:
+            try:
+                alerts = fetch_alerts(static)
+                with lock:
+                    STATE.update(alerts=alerts, alerts_updated=t0)
+                log.info('Störningar: %d meddelanden för spårtrafiken', len(alerts))
+            except Exception as e:
+                STATE['alerts_updated'] = t0 - ALERT_SECONDS + 60   # nytt försök om en minut
+                log.warning('Störningar misslyckades: %s', e)
         try:
             r = session.get(url, timeout=30)
             if r.status_code == 429:
@@ -411,7 +579,7 @@ class Handler(SimpleHTTPRequestHandler):
                 body = json.dumps({
                     'now': time.time(), 'updated': STATE['updated'], 'feed_ts': STATE['feed_ts'],
                     'poll': POLL_SECONDS, 'error': STATE['error'], 'stats': STATE['stats'],
-                    'vehicles': STATE['vehicles'],
+                    'vehicles': STATE['vehicles'], 'alerts': STATE['alerts'],
                 }, ensure_ascii=False).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -435,7 +603,7 @@ class Handler(SimpleHTTPRequestHandler):
 def snapshot(outfile):
     """Engångskörning för GitHub Actions: hämta realtid en gång och skriv JSON-fil.
     Misslyckas något (t.ex. saknade nycklar) publiceras kartan ändå, utan fordon."""
-    out = {'now': time.time(), 'updated': 0, 'static': True, 'poll': 300, 'error': None, 'stats': {}, 'vehicles': []}
+    out = {'now': time.time(), 'updated': 0, 'static': True, 'poll': 300, 'error': None, 'stats': {}, 'vehicles': [], 'alerts': []}
     p = Path(outfile)
     p.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -459,6 +627,11 @@ def snapshot(outfile):
     except Exception as e:
         out['error'] = str(e)
         log.warning('Realtid misslyckades: %s', e)
+    try:
+        out['alerts'] = fetch_alerts(static)
+        log.info('Störningar: %d', len(out['alerts']))
+    except Exception as e:
+        log.warning('Störningar misslyckades: %s', e)
     p.write_text(json.dumps(out, ensure_ascii=False), encoding='utf-8')
 
 
