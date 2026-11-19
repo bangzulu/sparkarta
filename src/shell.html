@@ -19,7 +19,7 @@
   .hit{fill:none;stroke:transparent;stroke-width:22;pointer-events:stroke;cursor:pointer}
   .dot{fill:#fff;cursor:pointer;stroke:transparent;stroke-width:12}
   .pill{cursor:pointer}
-  .lbl{font-size:17px;font-weight:500;fill:var(--ink);cursor:pointer}
+  .lbl{font-size:var(--lfs,17px);font-weight:500;fill:var(--ink);cursor:pointer}
   .tlbl{font-size:23px;font-weight:500;fill:var(--ink);letter-spacing:1.6px}
   .title{font-size:104px;font-weight:600;fill:var(--ink);letter-spacing:-.5px}
   .rule{stroke:#8a9096;stroke-width:1.5}
@@ -30,7 +30,8 @@
   #map .y{fill:var(--y)}
   .badge{cursor:pointer}
   .oneway{fill:none;stroke:#fff;stroke-width:1.6}
-  #map.lod .lbl{display:none}
+  .lbl.hid{display:none}
+  #map.has-sel .lbl.sel.hid{display:none}
 
   #map.has-sel .route:not(.sel){opacity:.22;filter:saturate(.35) brightness(.55)}
   #map.has-sel .dot:not(.sel),#map.has-sel .pill:not(.sel),#map.has-sel .lbl:not(.sel),
@@ -141,6 +142,25 @@
   #info .dirbtn span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #info .dirbtn.on{border-color:var(--y);color:var(--y)}
   #info .stale{margin:6px 0 4px;font-size:13.5px;color:#ffb74d}
+  /* Min position */
+  #zme{display:flex;align-items:center;justify-content:center}
+  #zme.on{color:#4aa3ff}
+  #zme.wait svg{animation:spin 1.2s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .me-dot{fill:#4aa3ff;stroke:#fff;stroke-width:2.5}
+  .me-halo{fill:rgba(74,163,255,.25);animation:mepulse 2s ease-out infinite;transform-box:fill-box;transform-origin:center}
+  @keyframes mepulse{0%{transform:scale(.6);opacity:1}100%{transform:scale(1.6);opacity:0}}
+  .me-link{stroke:#4aa3ff;stroke-width:2;stroke-dasharray:5 5}
+  #gMe{pointer-events:none}
+  #mepill{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));transform:translateX(-50%);display:none;
+    padding:8px 14px;color:var(--ink);font:inherit;font-size:15px;cursor:pointer;white-space:nowrap;max-width:calc(100% - 140px);
+    overflow:hidden;text-overflow:ellipsis}
+  #mepill.show{display:block}
+  #mepill b{color:#4aa3ff}
+  #info.show ~ #mepill{display:none}
+  #toast{position:fixed;left:50%;top:14px;transform:translate(-50%,-20px);opacity:0;pointer-events:none;padding:9px 14px;font-size:15px;
+    transition:opacity .2s,transform .2s;z-index:20;max-width:calc(100% - 24px)}
+  #toast.show{opacity:1;transform:translate(-50%,0)}
   #info .branch{margin:16px 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
   #info ol.deps{border-left:0;padding:0}
   #info ol.deps li{display:flex;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
@@ -173,6 +193,7 @@
     #info .grab::before{content:"";position:absolute;left:50%;top:7px;width:40px;height:5px;margin-left:-20px;border-radius:3px;background:#6b7178}
     #info .hd{top:20px;margin:0 -16px;padding:2px 16px 6px;border-radius:0;touch-action:none}
     #info.show ~ #ctrl{display:none}
+    #mepill{left:12px;right:12px;transform:none;max-width:none;bottom:calc(66px + env(safe-area-inset-bottom));text-align:left}
     #ctrl{bottom:calc(12px + env(safe-area-inset-bottom));right:calc(12px + env(safe-area-inset-right))}
     #info .close{top:4px}
   }
@@ -185,14 +206,18 @@
     <g id="gLabels"></g><g id="gDeco"></g><g id="gAlerts"></g>
   </g>
   <g id="gVehicles"></g>
+  <g id="gMe"></g>
 </svg>
 <div id="alertToggles" class="card empty"></div>
 <div id="info" class="card"></div>
+<button id="mepill" class="card"></button>
+<div id="toast" class="card"></div>
 <div id="ctrl">
   <div id="zoom" class="card">
     <button id="zout" title="Zooma ut">−</button>
     <button id="zin" title="Zooma in">+</button>
     <button id="zfit" title="Visa hela kartan" style="font-size:17px">⤢</button>
+    <button id="zme" title="Visa min position" aria-label="Visa min position"><svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="4" fill="currentColor"/><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
   </div>
 </div>
 <script>/*DATA*/</script>

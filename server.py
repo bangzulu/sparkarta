@@ -712,7 +712,16 @@ def build_schedule(static, now=None):
                 tidx[tk] = len(timings); timings.append(list(tk))
             out.append([tid, T['line'], T['draw'], pidx[pk], tidx[tk], round(start)])
     out.sort(key=lambda r: r[5])
-    return {'generated': round(now), 'patterns': patterns, 'timings': timings, 'trips': out}
+    # Stationernas geografiska läge (medel av plattformarna) – för \"min position\" på kartan
+    acc = {}
+    for T in static['trips'].values():
+        for s in T['stops']:
+            if s['lat'] and s['lon']:
+                a = acc.setdefault(s['st'], {})
+                a.setdefault(s['ids'][0], (s['lat'], s['lon']))
+    geo = {sid: [round(sum(p[0] for p in v.values()) / len(v), 6), round(sum(p[1] for p in v.values()) / len(v), 6)]
+           for sid, v in acc.items()}
+    return {'generated': round(now), 'patterns': patterns, 'timings': timings, 'trips': out, 'geo': geo}
 
 
 def snapshot(outfile):

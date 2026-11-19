@@ -106,6 +106,7 @@ PILLS.forEach(([ids, x1, y1, x2, y2, type]) => {
 
 // Stationspunkter och etiketter
 const ROT = 45, LH = 17;
+const LBL = [];
 function label(st) {
   let L = st.lab;
   if (!L) return;
@@ -125,10 +126,12 @@ function label(st) {
   const lines = text.split('\n');
   const y0 = -(lines.length - 1) * LH / 2;
   lines.forEach((s, i) => {
-    const sp = el('tspan', { x: P[0], dy: i === 0 ? y0 + 4.5 : LH }, t);
+    // em-enheter så att radavståndet följer med när textstorleken ändras vid zoom
+    const sp = el('tspan', { x: P[0], dy: ((i === 0 ? y0 + 4.5 : LH) / 17).toFixed(3) + 'em' }, t);
     sp.textContent = s;
   });
   (stationEls[st.id] = stationEls[st.id] || []).push(t);
+  LBL.push({ el: t, id: st.id, x: P[0], y: P[1], anchor: P[2], rot: P[3] * Math.PI / 180, n: lines.length, w: 0 });
 }
 for (const id in ST) {
   const st = ST[id];
@@ -219,6 +222,55 @@ function shiftTerminus(id, grp) {
   grp.dataset.dx = dx; grp.dataset.dy = dy;
 }
 
+/* ---------- Etiketter: läsbar storlek och krockfri ----------
+   Etiketterna blir aldrig mindre än MIN_PX på skärmen. Vid utzoomning växer de därför i
+   kartans mått, och de som då krockar döljs – bytesstationer och vald linje först. */
+const MIN_PX = 11.5, BASE_FS = 17;
+let lblK = 0, lblTimer = 0;
+function scheduleLabels(force) {
+  if (!force && lblK && Math.abs(view.k / lblK - 1) < 0.06) return;
+  clearTimeout(lblTimer);
+  lblTimer = setTimeout(layoutLabels, force ? 0 : 120);
+}
+function layoutLabels() {
+  lblK = view.k;
+  const fs = Math.max(BASE_FS, MIN_PX / view.k), s = fs / BASE_FS;
+  svg.style.setProperty('--lfs', fs.toFixed(2) + 'px');
+  if (!LBL[0].w) LBL.forEach(L => { L.w = Math.max(...[...L.el.children].map(sp => sp.getComputedTextLength())) || 40; });
+  const isPri = L => PILL_OF[L.id] || new Set([...ST[L.id].lines].map(l => LINE[l].c)).size > 1;
+  const isSel = L => selSet.size && [...ST[L.id].lines].some(l => selSet.has(l));
+  const order = LBL.map((L, i) => [L, (isSel(L) ? 4 : 0) + (isPri(L) ? 2 : 0) + (L.id === focus ? 8 : 0), i])
+    .sort((a, b) => b[1] - a[1] || a[2] - b[2]);
+  // Rutnät med upptagna cirklar (varje etikett approximeras av en kedja cirklar längs texten)
+  const cell = fs * 1.2, grid = new Map(), key = (i, j) => i * 100003 + j;
+  const put = c => { const k = key(Math.floor(c[0] / cell), Math.floor(c[1] / cell)); (grid.get(k) || grid.set(k, []).get(k)).push(c); };
+  const hits = c => {
+    const ci = Math.floor(c[0] / cell), cj = Math.floor(c[1] / cell);
+    for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) {
+      for (const o of grid.get(key(i, j)) || []) if (Math.hypot(o[0] - c[0], o[1] - c[1]) < o[2] + c[2] - 1) return true;
+    }
+    return false;
+  };
+  const chain = L => {
+    const w = L.w * s, h = (L.n - 1) * LH * s + fs * 0.82, r = h / 2;
+    const ux = Math.cos(L.rot), uy = Math.sin(L.rot);
+    const a0 = L.anchor === 'start' ? 0 : L.anchor === 'end' ? -w : -w / 2;
+    const out = [];
+    for (let d = a0 + r; d <= a0 + w - r + 0.1 || out.length === 0; d += r) out.push([L.x + ux * d, L.y + uy * d, r]);
+    return out;
+  };
+  // Hinder: ändstationernas versala namn
+  document.querySelectorAll('#gDeco .tlbl').forEach(t => {
+    const b = t.getBBox(), tr = t.closest('.term'), ox = +(tr?.dataset.dx || 0), oy = +(tr?.dataset.dy || 0), r = b.height / 2;
+    for (let x = b.x + r; x <= b.x + b.width - r + 0.1; x += r) put([x + ox, b.y + r + oy, r]);
+  });
+  for (const [L] of order) {
+    const c = chain(L), show = !c.some(hits);
+    if (show) c.forEach(put);
+    L.el.classList.toggle('hid', !show);
+  }
+}
+
 /* ---------- Mobil ---------- */
 const GRAB = '<div class="grab" aria-hidden="true"></div>';
 const isMobile = () => svg.clientWidth < 760;
@@ -235,7 +287,8 @@ const view = { k: 1, tx: 0, ty: 0 };
 const K_MIN = 0.15, K_MAX = 6;
 function applyView() {
   vp.setAttribute('transform', `translate(${view.tx},${view.ty}) scale(${view.k})`);
-  svg.classList.toggle('lod', view.k < 0.28);
+  scheduleLabels();
+  if (ME.map) drawMe();
   drawVehicles();
 }
 function zoomAt(mx, my, f) {
@@ -342,6 +395,7 @@ function clearSel() {
   setFocus(null);
   $('#info').classList.remove('show');
   renderAlertMarkers();
+  if (LBL.length && LBL[0].w) scheduleLabels(true);
 }
 function setFocus(id) {
   document.querySelectorAll('.focus').forEach(e => e.classList.remove('focus'));
@@ -365,6 +419,7 @@ function selectLines(ids, { zoom = true, info = true } = {}) {
   vehEls.forEach((el, vid) => el.classList.toggle('sel', selSet.has(vehicles.get(vid).line)));
   if (info && sel) showLineInfo(LINE[sel]);
   renderAlertMarkers();
+  scheduleLabels(true);
   if (zoom) fitStations([...new Set(ids.flatMap(id => LINE[id].stops))]);
 }
 const selectLine = (id, zoom = true) => selectLines([id], { zoom });
@@ -1034,6 +1089,86 @@ function alertList(list) {
 new MutationObserver(() => document.querySelectorAll('#info svg[data-cat]:empty').forEach(s => alertIcon(s.dataset.cat, s, 0, 0, 0)))
   .observe($('#info'), { childList: true, subtree: true });
 
+/* ---------- Min position ----------
+   GPS-läget räknas om till kartans schematiska koordinater: nära ett spår (< 500 m) hamnar
+   pricken på linjen mellan de två närmaste stationerna, annars viktat mellan de tre närmaste
+   stationerna med en streckad linje till den närmaste. */
+const ME = { watch: null, coords: null, map: null, centered: false };
+function toast(msg, ms = 3500) {
+  const t = $('#toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), ms);
+}
+function geoToMap(lat, lon) {
+  const G = SCHED.data?.geo;
+  if (!G) return null;
+  const c = Math.cos(lat * Math.PI / 180);
+  const xy = sid => G[sid] && [(G[sid][1] - lon) * c * 111320, (G[sid][0] - lat) * 110540];
+  const near = Object.keys(G).filter(s => ST[s] && ST[s].lines.size).map(s => { const p = xy(s); return [Math.hypot(p[0], p[1]), s]; })
+    .sort((a, b) => a[0] - b[0]);
+  if (!near.length || near[0][0] > 40000) return { outside: true, dist: near[0]?.[0] };
+  // närmaste spårsträcka
+  let best = null;
+  for (const l of LINES) for (let i = 0; i < l.stops.length - 1; i++) {
+    const A = xy(l.stops[i]), B = xy(l.stops[i + 1]);
+    if (!A || !B) continue;
+    const dx = B[0] - A[0], dy = B[1] - A[1], L2 = dx * dx + dy * dy;
+    const t = L2 ? Math.max(0, Math.min(1, (-A[0] * dx - A[1] * dy) / L2)) : 0;
+    const d = Math.hypot(A[0] + t * dx, A[1] + t * dy);
+    if (!best || d < best.d) best = { d, line: l.id, a: l.stops[i], b: l.stops[i + 1], t };
+  }
+  const [dist, sid] = near[0];
+  if (best && best.d < 500) {
+    const p = pointOnLine(best.line, best.a, best.b, best.t);
+    return { x: p.x, y: p.y, near: sid, dist, onTrack: true };
+  }
+  let wx = 0, wy = 0, ws = 0;
+  near.slice(0, 3).forEach(([d, s]) => { const w = 1 / Math.max(d, 50) ** 2; wx += ST[s].x * w; wy += ST[s].y * w; ws += w; });
+  return { x: wx / ws, y: wy / ws, near: sid, dist, onTrack: false };
+}
+const fmtDist = d => d < 950 ? `${Math.round(d / 10) * 10} m` : `${(d / 1000).toFixed(d < 9500 ? 1 : 0).replace('.', ',')} km`;
+function drawMe() {
+  const g0 = $('#gMe');
+  if (!ME.map || ME.map.outside) { g0.innerHTML = ''; return; }
+  const m = ME.map, sx = m.x * view.k + view.tx, sy = m.y * view.k + view.ty;
+  const S = ST[m.near], nx = S.x * view.k + view.tx, ny = S.y * view.k + view.ty;
+  g0.innerHTML = (m.onTrack ? '' : `<line x1="${sx}" y1="${sy}" x2="${nx}" y2="${ny}" class="me-link"/>`) +
+    `<circle cx="${sx}" cy="${sy}" r="16" class="me-halo"/><circle cx="${sx}" cy="${sy}" r="7.5" class="me-dot"/>`;
+}
+function updateMePill() {
+  const p = $('#mepill');
+  if (!ME.map) { p.classList.remove('show'); return; }
+  if (ME.map.outside) { p.innerHTML = `Du är utanför kartan (${fmtDist(ME.map.dist)} till närmaste station)`; p.dataset.st = ''; }
+  else { p.innerHTML = `<b>Du är här</b> · ${fmtDist(ME.map.dist)} till ${ST[ME.map.near].name}`; p.dataset.st = ME.map.near; }
+  p.classList.add('show');
+}
+function centerOnMe() {
+  if (!ME.map || ME.map.outside) return;
+  const [cx, cy] = viewCenter(), k = Math.max(view.k, 1.2);
+  animateTo({ k, tx: cx - ME.map.x * k, ty: cy - ME.map.y * k });
+}
+function locate() {
+  if (!navigator.geolocation) return toast('Platstjänster stöds inte i den här webbläsaren.');
+  if (ME.watch !== null) { if (ME.map) centerOnMe(); return; }
+  $('#zme').classList.add('wait');
+  const onPos = async p => {
+    if (!SCHED.data) await loadSchedule();
+    ME.coords = p.coords;
+    ME.map = geoToMap(p.coords.latitude, p.coords.longitude);
+    $('#zme').classList.remove('wait'); $('#zme').classList.add('on');
+    if (!ME.map) { toast('Stationernas geografiska läge saknas – kör via servern eller GitHub Pages.'); return; }
+    drawMe(); updateMePill();
+    if (!ME.centered) { ME.centered = true; centerOnMe(); }
+  };
+  ME.watch = navigator.geolocation.watchPosition(onPos, e => {
+    $('#zme').classList.remove('wait', 'on');
+    navigator.geolocation.clearWatch(ME.watch); ME.watch = null;
+    toast(e.code === 1 ? 'Platsåtkomst nekad – tillåt plats för sidan i webbläsaren.' : 'Kunde inte hitta din position.');
+  }, { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 });
+}
+$('#zme')?.addEventListener('click', locate);
+$('#mepill')?.addEventListener('click', e => { const s = e.currentTarget.dataset.st; if (s) showStation(s); });
+
 /* ---------- Valt fordon: tur med ankomsttider ---------- */
 const hhmm = t => new Date(t * 1000).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
 function zoomToStation(id, minK = 1.6) {
@@ -1145,6 +1280,7 @@ window.TrackMap = {
   setView: (k, tx, ty) => { Object.assign(view, { k, tx, ty }); applyView(); },
 };
 
+(document.fonts?.ready || Promise.resolve()).then(() => scheduleLabels(true));
 (document.fonts?.ready || Promise.resolve()).then(() => fitText.forEach(([t, w]) => {
   if (t.getComputedTextLength() > w) { t.setAttribute('textLength', w); t.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
 }));
