@@ -334,7 +334,7 @@ addEventListener('resize', applyView);
 let sel = null, focus = null, selSet = new Set(), stPanel = null, stFilter = null;
 let selVeh = null, follow = false;
 function clearSel() {
-  sel = null; selSet = new Set(); stPanel = null; stFilter = null;
+  sel = null; selSet = new Set(); stPanel = null; stFilter = null; stDir = 0;
   selVeh = null; follow = false;
   document.querySelectorAll('.veh.vsel').forEach(e => e.classList.remove('vsel'));
   svg.classList.remove('has-sel');
@@ -472,8 +472,9 @@ const stationLines = id => [...new Set(groupOf(id).flatMap(g => [...ST[g].lines]
 function setStationFilter(lineId) {
   const id = stPanel;
   const f = stFilter === lineId ? null : lineId;
+  const d = stDir;
   selectLines(f ? [f] : stationLines(id), { zoom: false, info: false });
-  stPanel = id; stFilter = f;
+  stPanel = id; stFilter = f; stDir = d;
   setFocus(id);
   renderStationPanel();
 }
@@ -482,14 +483,24 @@ function filterChip(l) {
   const cls = stFilter === l.id ? ' on' : stFilter ? ' dim' : '';
   return `<button class="chip${cls}" data-filter="${l.id}" style="background:${colorOf(l)};border-radius:${rx}px">${l.id}</button>`;
 }
+/* Riktning för ett tåg vid stationen: 1 = mot linjens slut (nedåt i linjelistan), 2 = mot början */
+function rowDir(v, i) {
+  const l = LINE[v.draw || v.line], si = l.stops.indexOf(v.stops[i]);
+  const ti = l.stops.indexOf(v.to);
+  if (ti >= 0 && si >= 0 && ti !== si) return ti > si ? 1 : 2;
+  const pi = i > 0 ? l.stops.indexOf(v.stops[i - 1]) : -1;      // slutstation: kom från vilket håll?
+  return pi >= 0 && pi < si ? 1 : 2;
+}
+let stDir = 0;
+const DIR_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 8h13m0 0-4-4m4 4-4 4M20 16H7m0 0 4-4m-4 4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 function renderStationPanel() {
   const id = stPanel, s = ST[id], info = $('#info');
   const grp = groupOf(id);
   const lines = stationLines(id).map(i => LINE[i]);
   const names = [...new Set(grp.map(g => ST[g].name))].join(' / ');
-  let dep = '';
-  if (mode === 'live' && live.veh.size) {
-    const now = Date.now() / 1000 + live.skew, rows = [];
+  let dep = '', dirBtn = '';
+  if (mode === 'live' && live.data) {
+    const now = Date.now() / 1000 + live.skew, all = [];
     live.veh.forEach(v => {
       const p = v.pos; if (!p) return;
       if (stFilter && v.line !== stFilter) return;
@@ -499,23 +510,29 @@ function renderStationPanel() {
         const last = i === v.stops.length - 1;
         const t = (i === 0 ? v.dep[0] : v.arr[i]) + v.delay;
         if (t < now - 60) break;
-        rows.push({ v, t, last, here: p.at === i });
+        all.push({ v, t, last, here: p.at === i, dir: rowDir(v, i) });
         break;
       }
     });
-    rows.sort((a, b) => a.t - b.t);
-    dep = rows.length ? `<div class="branch">Nästa tåg</div><ol class="deps">${rows.slice(0, 14).map(r => {
+    // Riktningsknapp: Alla → Riktning 1 → Riktning 2
+    const dest = d => [...new Set(all.filter(r => r.dir === d).map(r => ST[r.last ? r.v.stops[r.v.stops.length - 1] : r.v.to].name))];
+    const lbl = stDir ? (dest(stDir).length ? 'Mot ' + dest(stDir).slice(0, 3).join(', ') + (dest(stDir).length > 3 ? ' …' : '') : `Riktning ${stDir}`) : 'Alla riktningar';
+    dirBtn = `<button class="dirbtn${stDir ? ' on' : ''}" data-dir="1" title="Växla riktning (alla / riktning 1 / riktning 2)">${DIR_ICON}<span>${lbl}</span></button>`;
+    const rows = all.filter(r => !stDir || r.dir === stDir).sort((a, b) => a.t - b.t);
+    const age = now - (live.data.updated || 0), stale = age > 15 * 60;
+    const note = stale ? `<div class="stale">Realtidsdata från kl ${hhmm(live.data.updated)} (${age > 5400 ? Math.round(age / 3600) + ' h' : Math.round(age / 60) + ' min'} sedan) – avgångar kan saknas.</div>` : '';
+    dep = rows.length ? `<div class="branch">Nästa tåg</div>${note}<ol class="deps">${rows.slice(0, 14).map(r => {
       const l = LINE[r.v.line], m = Math.round((r.t - now) / 60);
       const rel = r.here ? 'här nu' : m <= 0 ? 'nu' : `${m} min`;
       const late = Math.abs(r.v.delay) >= 60 ? ` <span class="${r.v.delay >= 120 ? 'bad' : 'muted'}">${fmtDelay(r.v.delay)}</span>` : '';
       return `<li data-vid="${r.v.id}"><span class="tm">${hhmm(r.t)}</span>${chip(l)}<span class="nm">${r.last ? 'Slutstation' : ST[r.v.to].name}${late}</span><span class="rel">${rel}</span></li>`;
-    }).join('')}</ol>` : `<div class="sub" style="margin-top:14px">Inga tåg${stFilter ? ` på linje ${stFilter}` : ''} på väg hit just nu.</div>`;
+    }).join('')}</ol>` : (note || `<div class="sub" style="margin-top:14px">Inga tåg${stFilter ? ` på linje ${stFilter}` : ''}${stDir ? ' i den riktningen' : ''} på väg hit just nu.</div>`);
   }
   const scroll = info.scrollTop;
   info.style.removeProperty('--c');
   info.innerHTML = `${GRAB}<div class="hd"><button class="close" aria-label="Stäng">×</button><h2><span>${names}</span></h2>
     <div class="sub">${lines.length > 1 ? (stFilter ? `Visar linje ${stFilter} – klicka igen för alla` : `${lines.length} linjer – välj en för att filtrera`) : '1 linje'}</div>
-    <div class="chips filter">${lines.map(filterChip).join('')}</div></div>${alertList(alertsForStation(id))}${dep}`;
+    <div class="chips filter">${lines.map(filterChip).join('')}</div>${dirBtn}</div>${alertList(alertsForStation(id))}${dep}`;
   info.classList.add('show');
   info.scrollTop = scroll;
 }
@@ -539,12 +556,13 @@ svg.addEventListener('click', e => {
 $('#info').addEventListener('click', e => {
   const al = e.target.closest('.alert');
   if (al) { al.classList.toggle('open'); openAlerts[al.dataset.aid] = al.classList.contains('open'); return; }
-  const t = e.target.closest('[data-st],[data-line],[data-zoom],[data-vid],[data-filter],.close,.follow');
+  const t = e.target.closest('[data-st],[data-line],[data-zoom],[data-vid],[data-filter],[data-dir],.close,.follow');
   if (!t) return;
   if (t.classList.contains('close')) return clearSel();
   if (t.classList.contains('follow')) return setFollow(!follow);
   if (t.dataset.zoom) { setFollow(false); return zoomToStation(t.dataset.zoom); }
   if (t.dataset.at) return showStation(t.dataset.at, { line: t.dataset.line });
+  if (t.dataset.dir) { stDir = (stDir + 1) % 3; return renderStationPanel(); }
   if (t.dataset.filter) return setStationFilter(t.dataset.filter);
   if (t.dataset.vid) return showVehicle(t.dataset.vid);
   if (t.dataset.st) return showStation(t.dataset.st, { fromList: true });

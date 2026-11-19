@@ -36,22 +36,28 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      # Statisk GTFS (58 MB) hämtas högst var 3:e dygn – Bronze-kvoten är 50 hämtningar/månad
-      - name: Period för statisk data
-        id: period
-        run: echo "bucket=$(( $(date +%s) / 259200 ))" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/cache@v4
+      # Statisk GTFS (58 MB) hämtas högst var 3:e dygn – Bronze-kvoten är 50 hämtningar/månad.
+      # Återställ senaste cache; spara bara när en ny zip faktiskt har hämtats (nyckel = filens hash).
+      - name: Återställ statisk GTFS
+        uses: actions/cache/restore@v4
         with:
           path: cache
-          key: gtfs-sl-${{ steps.period.outputs.bucket }}
-          restore-keys: gtfs-sl-
+          key: gtfs-sl-zip-none
+          restore-keys: gtfs-sl-zip-
 
       - name: Hämta realtidspositioner
         env:
           TRAFIKLAB_RT_KEY: ${{ secrets.TRAFIKLAB_RT_KEY }}
           TRAFIKLAB_STATIC_KEY: ${{ secrets.TRAFIKLAB_STATIC_KEY }}
         run: python3 server.py --snapshot site/api/vehicles
+
+      - name: Spara statisk GTFS
+        if: hashFiles('cache/sl.zip') != ''
+        uses: actions/cache/save@v4
+        continue-on-error: true          # finns redan för samma zip → inget att spara
+        with:
+          path: cache
+          key: gtfs-sl-zip-${{ hashFiles('cache/sl.zip') }}
 
       - name: Bygg sajten
         run: |
