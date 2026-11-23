@@ -46,3 +46,14 @@ jobs:
 
       - if: steps.gate.outputs.ok == '1'
         run: flyctl deploy --remote-only --ha=false -a "$APP"
+
+      - name: Kontrollera att realtiden svarar
+        if: steps.gate.outputs.ok == '1'
+        run: |
+          sleep 5
+          curl -sf --retry 3 --max-time 90 "https://$APP.fly.dev/api/vehicles" | python3 -c "
+          import json, sys, time
+          j = json.load(sys.stdin)
+          print(f\"{len(j['vehicles'])} fordon, {len(j['alerts'])} störningar, data {time.time() - j['updated']:.0f} s gammal, fel: {j['error']}\")
+          assert j['vehicles'], 'inga fordon'
+          "
