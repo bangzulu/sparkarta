@@ -1,4 +1,5 @@
-# Publicerar kartan på GitHub Pages med realtidspositioner som uppdateras var 5:e minut.
+# Publicerar kartan på GitHub Pages. Körs vid push och en gång per natt: nattkörningen bygger
+# tidtabellen för kommande ~30 h, som kartan använder för fordonen (tidtabellsläge).
 # Kräver: repo-hemligheterna TRAFIKLAB_RT_KEY och TRAFIKLAB_STATIC_KEY,
 # samt Settings → Pages → Source: "GitHub Actions".
 name: Publicera spårkarta
@@ -7,7 +8,7 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '*/5 * * * *'     # GitHub kör schemat på bästa vilja – ofta 5–15 min mellan körningar
+    - cron: '17 2 * * *'      # ca 03:17 svensk tid
   workflow_dispatch:
 
 permissions:
@@ -25,7 +26,7 @@ jobs:
     timeout-minutes: 15
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      url: ${{ steps.deploy1.outputs.page_url || steps.deploy2.outputs.page_url }}
     steps:
       - uses: actions/checkout@v5
 
@@ -68,5 +69,14 @@ jobs:
         with:
           path: site
 
-      - id: deploy
+      # deploy-pages fallerar ibland tillfälligt hos GitHub ("No artifacts named github-pages") – försök igen
+      - id: deploy1
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      - if: steps.deploy1.outcome == 'failure'
+        run: sleep 30
+
+      - id: deploy2
+        if: steps.deploy1.outcome == 'failure'
         uses: actions/deploy-pages@v4

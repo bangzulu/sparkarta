@@ -28,9 +28,9 @@ Servern pollar bara när någon har kartan öppen (senaste 5 min), så kvoten r�
 
 ## Publik webb via GitHub Pages
 
-Workflowen `.github/workflows/pages.yml` publicerar kartan med realtidsdata utan egen server:
-var 5:e minut (GitHub kör schemat ungefärligt, ofta 5–15 min) hämtas positionerna och läggs som
-`api/vehicles` bredvid kartan. Mellan uppdateringarna rullar tågen vidare enligt tidtabell + försening.
+Workflowen `.github/workflows/pages.yml` publicerar kartan utan egen server, vid push och en gång
+per natt (ca 03:17). Nattkörningen lägger tidtabellen för kommande ~30 h i `api/schedule` och en
+ögonblicksbild av realtid och störningar i `api/vehicles`.
 
 Engångsinställning:
 1. **Settings → Secrets and variables → Actions**: lägg till `TRAFIKLAB_RT_KEY` och `TRAFIKLAB_STATIC_KEY`.
@@ -38,12 +38,13 @@ Engångsinställning:
 3. Repot måste vara publikt (eller GitHub Pro) för Pages.
 4. **Actions → Publicera spårkarta → Run workflow** för första körningen.
 
-Mellan körningarna (GitHub kör schemat oregelbundet, ibland med timmar emellan) faller kartan
-tillbaka på tidtabellen i `api/schedule`: när realtiden är äldre än 10 min visas tågen enligt
-tidtabell med senast kända försening per tur, och avgångsvyn markerar det. Avgångar för turer som
+Eftersom ögonblicksbilden snabbt blir gammal visar den publicerade kartan i praktiken tågen
+enligt tidtabellen i `api/schedule` (realtid äldre än 10 min räknas som inaktuell), och avgångsvyn
+markerar det. Riktig realtid kräver något som hämtar data när sidan används – lokala `server.py`
+gör det. Avgångar för turer som
 inte startat än (eller saknar position, t.ex. Nockebybanan) visas alltid från tidtabellen.
 
-Kvot: ~9 000 realtidsanrop/månad (Bronze tillåter 30 000), statisk data hämtas var 3:e dygn.
+Kvot: ~60 realtidsanrop/månad (Bronze tillåter 30 000), statisk data hämtas var 3:e dygn.
 
 ## Störningar
 
