@@ -1,0 +1,25 @@
+# Realtidsservern på Fly.io. Maskinen startar när någon öppnar kartan och stängs av
+# när ingen har tittat på en stund – kostar bara den tid den kör.
+app = 'sparkarta-bangzulu'
+primary_region = 'arn'
+
+[build]
+
+[env]
+  POLL_SECONDS = '90'          # Bronze-kvot: 30 000 anrop/månad
+  IDLE_AFTER_SECONDS = '300'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[mounts]]
+  source = 'gtfs_data'
+  destination = '/data'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '1gb'

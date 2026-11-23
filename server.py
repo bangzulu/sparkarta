@@ -62,8 +62,8 @@ MAX_OFF_ROUTE_M = 1500        # längre från spåret än så → ignoreras (dep
 STALE_AFTER_S = 300           # positioner äldre än så visas inte
 
 TZ = ZoneInfo('Europe/Stockholm')
-CACHE = HERE / 'cache'
-CACHE.mkdir(exist_ok=True)
+CACHE = Path(os.environ.get('CACHE_DIR', HERE / 'cache'))
+CACHE.mkdir(parents=True, exist_ok=True)
 
 log = logging.getLogger('sparkarta')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s', datefmt='%H:%M:%S')
@@ -626,6 +626,9 @@ def poll_loop(static):
 # ---------------------------------------------------------------------------
 # HTTP
 # ---------------------------------------------------------------------------
+READY = threading.Event()
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=str(HERE / 'public'), **kw)
@@ -633,8 +636,23 @@ class Handler(SimpleHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+
     def do_GET(self):
+        if self.path.startswith('/api/') and not READY.wait(90):
+            self.send_response(503)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            return
         if self.path.startswith('/api/vehicles'):
+            STATE['last_client'] = time.time()
+            # nyss väckt: vänta (högst 20 s) på första hämtningen i stället för att svara tomt
+            t_end = time.time() + 20
+            while not STATE['updated'] and not STATE['error'] and time.time() < t_end:
+                time.sleep(0.2)
             with lock:
                 STATE['last_client'] = time.time()
                 body = json.dumps({
@@ -655,6 +673,7 @@ class Handler(SimpleHTTPRequestHandler):
                 SCHED_CACHE.update(t=time.time(), body=json.dumps(build_schedule(STATIC_REF['s']), separators=(',', ':')).encode())
             self.send_response(200)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Access-Control-Allow-Origin', '*')
             self.send_header('Content-Length', str(len(SCHED_CACHE['body'])))
             self.end_headers()
             self.wfile.write(SCHED_CACHE['body'])
@@ -769,10 +788,14 @@ def main():
         return snapshot(sys.argv[2])
     if not RT_KEY:
         raise SystemExit('Saknar TRAFIKLAB_RT_KEY (lägg den i .env)')
-    static = build_static()
-    STATIC_REF['s'] = static
-    STATE['last_client'] = time.time()
-    threading.Thread(target=poll_loop, args=(static,), daemon=True).start()
+    # Lyssna direkt (Fly väcker maskinen vid första anropet) och läs tidtabellen i bakgrunden
+    def boot():
+        static = build_static()
+        STATIC_REF['s'] = static
+        STATE['last_client'] = time.time()
+        READY.set()
+        poll_loop(static)
+    threading.Thread(target=boot, daemon=True).start()
     srv = ThreadingHTTPServer(('0.0.0.0', PORT), Handler)
     log.info('Kartan: http://localhost:%d  (pollar var %.0f s när någon tittar)', PORT, POLL_SECONDS)
     try:

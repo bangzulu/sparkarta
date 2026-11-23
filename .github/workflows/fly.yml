@@ -1,0 +1,48 @@
+# Driftsätter realtidsservern på Fly.io när servern ändras (eller manuellt).
+# Kräver repo-hemligheten FLY_API_TOKEN (org-token: `fly tokens create org`) samt
+# TRAFIKLAB_RT_KEY och TRAFIKLAB_STATIC_KEY (finns redan för Pages).
+name: Driftsätt realtidsserver (Fly.io)
+
+on:
+  push:
+    branches: [main]
+    paths: [server.py, network.json, requirements.txt, Dockerfile, fly.toml, public/index.html, .github/workflows/fly.yml]
+  workflow_dispatch:
+
+concurrency:
+  group: fly
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      APP: sparkarta-bangzulu
+    steps:
+      - id: gate
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then echo "::notice::FLY_API_TOKEN saknas – hoppar över Fly"; echo ok=0 >> "$GITHUB_OUTPUT"
+          else echo ok=1 >> "$GITHUB_OUTPUT"; fi
+      - if: steps.gate.outputs.ok == '1'
+        uses: actions/checkout@v5
+      - if: steps.gate.outputs.ok == '1'
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Skapa app och volym första gången
+        if: steps.gate.outputs.ok == '1'
+        run: |
+          flyctl status -a "$APP" >/dev/null 2>&1 || flyctl apps create "$APP" --org "${{ vars.FLY_ORG || 'personal' }}"
+          flyctl volumes list -a "$APP" --json | grep -q '"gtfs_data"' || \
+            flyctl volumes create gtfs_data -a "$APP" --region arn --size 1 --yes
+
+      - name: Nycklar
+        if: steps.gate.outputs.ok == '1'
+        run: |
+          flyctl secrets set -a "$APP" --stage \
+            TRAFIKLAB_RT_KEY="${{ secrets.TRAFIKLAB_RT_KEY }}" \
+            TRAFIKLAB_STATIC_KEY="${{ secrets.TRAFIKLAB_STATIC_KEY }}"
+
+      - if: steps.gate.outputs.ok == '1'
+        run: flyctl deploy --remote-only --ha=false -a "$APP"

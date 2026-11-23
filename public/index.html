@@ -1283,6 +1283,9 @@ let mode = 'off';
 const DEMO_SPEED = 1.5;
 const live = { ok: false, tried: false, data: null, updated: 0, skew: 0, veh: new Map(), timer: 0 };
 const LIVE_URL = 'api/vehicles';
+// På GitHub Pages hämtas realtid från servern på Fly.io (startar när någon tittar);
+// svarar den inte används nattens ögonblicksbild bredvid sidan.
+const API_BASE = location.hostname.endsWith('github.io') ? 'https://sparkarta-bangzulu.fly.dev/' : '';
 let MAX_AHEAD = 3;            // rulla högst så många stopp förbi senaste mätningen
 const FREEZE_AFTER = 240;       // sekunder utan ny mätning → stanna
 
@@ -1303,14 +1306,22 @@ function setMode(m) {
 async function pollLive() {
   clearTimeout(live.timer);
   try {
-    const r = await fetch(LIVE_URL + '?t=' + Math.floor(Date.now() / 10000), { cache: 'no-store' });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const j = await r.json();
+    const get = async base => {
+      const r = await fetch(base + LIVE_URL + '?t=' + Math.floor(Date.now() / 10000),
+        { cache: 'no-store', signal: AbortSignal.timeout?.(base ? 35000 : 15000) });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    };
+    let j;
+    if (API_BASE) {
+      try { j = await get(API_BASE); live.remote = true; }
+      catch (e) { live.remote = false; if (live.data && !live.data.static) throw e; j = await get(''); }
+    } else j = await get('');
     live.ok = true; live.tried = true;
     // Statisk fil (GitHub Pages) – klientens klocka gäller, och fordonen får rulla längre på tidtabellen
     live.static = !!j.static;
     live.skew = j.static ? 0 : j.now - Date.now() / 1000;
-    if (j.static) MAX_AHEAD = 30;
+    MAX_AHEAD = j.static ? 30 : 3;
     live.data = j;
     setAlerts(j.alerts);
     if (mode === 'live' && j.updated !== live.updated) { live.updated = j.updated; refreshFleet(true); }
@@ -1331,7 +1342,7 @@ async function pollLive() {
     if (!live.ok && mode === 'live') { setMode('demo'); }
   }
   status();
-  if (mode === 'live' && !live.snapshot) live.timer = setTimeout(pollLive, 10000);
+  if (mode === 'live' && !live.snapshot) live.timer = setTimeout(pollLive, API_BASE && !live.remote ? 30000 : 10000);
 }
 /* ---------- Tidtabell som reserv ----------
    api/schedule innehåller dygnets spårturer. När realtiden är äldre än FRESH visas tågen

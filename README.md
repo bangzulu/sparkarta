@@ -46,6 +46,20 @@ inte startat än (eller saknar position, t.ex. Nockebybanan) visas alltid från 
 
 Kvot: ~60 realtidsanrop/månad (Bronze tillåter 30 000), statisk data hämtas var 3:e dygn.
 
+## Realtid via Fly.io
+
+`server.py` körs även på Fly.io (`Dockerfile`, `fly.toml`). Maskinen startar när någon öppnar
+kartan och stängs av ~5 min efter att sista besökaren lämnat, så den kostar bara den tid den
+används. Den publicerade sidan på GitHub Pages hämtar realtid därifrån
+(`https://sparkarta-bangzulu.fly.dev/api/vehicles`); svarar den inte används nattens ögonblicksbild.
+Första anropet efter vila tar ~10 s. Statisk GTFS cachas på volymen `gtfs_data`.
+
+Engångsinställning: skapa en token (`fly tokens create org`, eller i Fly-dashboarden under
+*Tokens*) och lägg den som repo-hemlighet `FLY_API_TOKEN`. Kör sedan
+**Actions → Driftsätt realtidsserver (Fly.io) → Run workflow**. Workflowen skapar appen och
+volymen första gången och sätter Trafiklab-nycklarna från repo-hemligheterna. Om din Fly-org inte
+heter `personal`: lägg till repo-variabeln `FLY_ORG`.
+
 ## Störningar
 
 Servern hämtar även GTFS-RT **ServiceAlerts** (samma nyckel) var 5:e minut. Meddelanden för spårtrafiken
