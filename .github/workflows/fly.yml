@@ -1,4 +1,4 @@
-# Driftsätter realtidsservern på Fly.io när servern ändras (eller manuellt).
+# Driftsätter realtidsservern på Fly.io när servern eller den här filen ändras (eller manuellt).
 # Kräver repo-hemligheten FLY_API_TOKEN (org-token: `fly tokens create org`) samt
 # TRAFIKLAB_RT_KEY och TRAFIKLAB_STATIC_KEY (finns redan för Pages).
 name: Driftsätt realtidsserver (Fly.io)
